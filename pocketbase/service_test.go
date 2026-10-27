@@ -288,3 +288,38 @@ func TestHandlerServesFileRoute(t *testing.T) {
 func containsBytes(haystack, needle []byte) bool {
 	return len(needle) > 0 && bytes.Contains(haystack, needle)
 }
+
+// TestUIRoundTrip verifies that the interface preferences are stored and
+// read back.
+func TestUIRoundTrip(t *testing.T) {
+	svc := newTestService(t)
+	cipher, err := NewCipher(svc.DataDir())
+	if err != nil {
+		t.Fatalf("NewCipher: %v", err)
+	}
+	store := NewSettingsStore(svc.App(), cipher)
+
+	// The factory defaults are returned when nothing was saved.
+	ui, err := store.GetUI()
+	if err != nil {
+		t.Fatalf("GetUI: %v", err)
+	}
+	if ui.Zoom != 100 {
+		t.Errorf("default zoom = %d, want 100", ui.Zoom)
+	}
+	if ui.Theme != "dark" {
+		t.Errorf("default theme = %q, want dark", ui.Theme)
+	}
+
+	// A saved zoom is read back.
+	if err := store.SetUI(UI{Zoom: 150, Theme: "dark"}); err != nil {
+		t.Fatalf("SetUI: %v", err)
+	}
+	ui, err = store.GetUI()
+	if err != nil {
+		t.Fatalf("GetUI: %v", err)
+	}
+	if ui.Zoom != 150 {
+		t.Errorf("zoom = %d, want 150", ui.Zoom)
+	}
+}

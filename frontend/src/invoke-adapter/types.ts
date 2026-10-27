@@ -133,7 +133,7 @@ export type { Job, Image, Asset, Preset, Capabilities };
  *
  * The API key is never returned by the backend, only whether one is set.
  */
-export interface Settings {
+export type Settings = {
   has_api_key: boolean;
   base_url: string;
   model: string;
@@ -149,4 +149,15 @@ export interface Settings {
     style_type: string;
     style_weight: number;
   };
+  ui: UISettings;
+};
+
+/**
+ * The interface preferences.
+ */
+export interface UISettings {
+  /** The interface scale, as a percentage of the base size (50-200). */
+  zoom: number;
+  /** The interface colour scheme: 'dark' or 'light'. */
+  theme: string;
 }

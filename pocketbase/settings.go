@@ -17,7 +17,48 @@ const (
 	SettingMiniMaxModel = "minimax.model"
 	// SettingDefaults holds the default generation preferences.
 	SettingDefaults = "defaults"
+	// SettingUI holds the user interface preferences.
+	SettingUI = "ui"
 )
+
+// UI holds the user interface preferences.
+//
+// The zoom factor scales the whole interface, because the application
+// runs in a webview whose base font size the user cannot change.
+type UI struct {
+	// Zoom is the interface scale, as a percentage of the base size.
+	// It accepts 50 to 200.
+	Zoom int `json:"zoom"`
+	// Theme is the interface colour scheme: "dark" or "light".
+	Theme string `json:"theme"`
+}
+
+// DefaultUI returns the factory UI preferences.
+func DefaultUI() UI {
+	return UI{
+		Zoom:  100,
+		Theme: "dark",
+	}
+}
+
+// UI stores the interface preferences.
+func (s *SettingsStore) SetUI(ui UI) error {
+	return s.setValue(SettingUI, ui, false)
+}
+
+// GetUI returns the interface preferences, falling back to the factory
+// defaults.
+func (s *SettingsStore) GetUI() (UI, error) {
+	ui := DefaultUI()
+	found, err := s.getValue(SettingUI, false, &ui)
+	if err != nil {
+		return DefaultUI(), err
+	}
+	if !found {
+		return DefaultUI(), nil
+	}
+	return ui, nil
+}
 
 // DefaultBaseURL is the documented MiniMax API host.
 const DefaultBaseURL = "https://api.minimax.cn"

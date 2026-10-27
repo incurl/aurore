@@ -7,6 +7,15 @@
  */
 
 :root {
+  /*
+   * The interface is dark, so the native widgets (the select popup, the
+   * scrollbars, the date picker) must be told to use a dark palette.
+   * Without this, WebKitGTK renders the select popup with a light
+   * background while the option text stays light, which makes the
+   * selected item appear blank.
+   */
+  color-scheme: dark;
+
   --bg: #101014;
   --bg-raised: #17171d;
   --bg-input: #1e1e26;
@@ -21,7 +30,7 @@
   --success: #34d399;
   --warning: #fbbf24;
   --danger: #f87171;
-  --radius: 6px;
+  --radius: 0.4615rem;
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
@@ -42,7 +51,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -66,9 +75,9 @@ select {
   font-size: inherit;
   color: var(--text);
   background: var(--bg-input);
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 0.4615rem 0.6154rem;
   width: 100%;
 }
 
@@ -79,10 +88,19 @@ select:focus {
   border-color: var(--accent);
 }
 
+/*
+ * The native select popup is drawn by the engine, so the options need
+ * their own colours rather than inheriting the select's.
+ */
+select option {
+  color: var(--text);
+  background-color: var(--bg-input);
+}
+
 textarea {
   resize: vertical;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.6;
 }
 
@@ -90,8 +108,8 @@ textarea {
 
 .app {
   display: grid;
-  grid-template-columns: 320px 1fr 300px;
-  grid-template-rows: 48px 1fr;
+  grid-template-columns: 24.6154rem 1fr 23.0769rem;
+  grid-template-rows: 3.6923rem 1fr;
   height: 100%;
 }
 
@@ -99,22 +117,22 @@ textarea {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  gap: 1.2308rem;
+  padding: 0 1.2308rem;
   background: var(--bg-raised);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.0769rem solid var(--border);
 }
 
 .app-brand {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 1.1538rem;
   letter-spacing: 0.02em;
 }
 
 .app-brand small {
   color: var(--text-dim);
   font-weight: 400;
-  margin-left: 8px;
+  margin-left: 0.6154rem;
 }
 
 .app-header-spacer {
@@ -125,32 +143,32 @@ textarea {
 .app-gallery {
   overflow-y: auto;
   background: var(--bg-raised);
-  padding: 12px;
+  padding: 0.9231rem;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 1.0769rem;
 }
 
 .app-rail {
-  border-right: 1px solid var(--border);
+  border-right: 0.0769rem solid var(--border);
 }
 
 .app-gallery {
-  border-left: 1px solid var(--border);
+  border-left: 0.0769rem solid var(--border);
 }
 
 .app-canvas {
   overflow: auto;
-  padding: 16px;
+  padding: 1.2308rem;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 1.0769rem;
 }
 
 /* ---------- Panels ---------- */
 
 .panel {
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
   overflow: hidden;
@@ -160,42 +178,42 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 0.6154rem;
+  padding: 0.6154rem 0.7692rem;
   background: var(--bg-raised);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.0769rem solid var(--border);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
 
 .panel-body {
-  padding: 10px;
+  padding: 0.7692rem;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.7692rem;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.3077rem;
 }
 
 .field-label {
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 600;
   color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 0.6154rem;
 }
 
 .field-hint {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--text-dim);
   font-weight: 400;
   line-height: 1.45;
@@ -203,7 +221,7 @@ textarea {
 
 .field-row {
   display: flex;
-  gap: 8px;
+  gap: 0.6154rem;
   align-items: center;
 }
 
@@ -214,14 +232,14 @@ textarea {
 .checkbox {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 0.6154rem;
   cursor: pointer;
   user-select: none;
 }
 
 .checkbox input {
   width: auto;
-  margin: 2px 0 0;
+  margin: 0.1538rem 0 0;
   flex: 0 0 auto;
   accent-color: var(--accent);
 }
@@ -229,11 +247,11 @@ textarea {
 .checkbox-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.1538rem;
 }
 
 .checkbox-title {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
 }
 
@@ -243,11 +261,11 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 7px 12px;
+  gap: 0.4615rem;
+  padding: 0.5385rem 0.9231rem;
   background: var(--bg-input);
   color: var(--text);
-  border: 1px solid var(--border-strong);
+  border: 0.0769rem solid var(--border-strong);
   border-radius: var(--radius);
   font-weight: 500;
   transition: background 0.12s ease, border-color 0.12s ease;
@@ -269,8 +287,8 @@ textarea {
 }
 
 .btn-sm {
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 0.3077rem 0.6154rem;
+  font-size: 0.8462rem;
 }
 
 .btn-block {
@@ -292,27 +310,27 @@ textarea {
 .job-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.4615rem;
 }
 
 .job-item {
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
-  padding: 8px;
+  padding: 0.6154rem;
   background: var(--bg-input);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.4615rem;
 }
 
 .job-item-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.4615rem;
 }
 
 .job-prompt {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -320,14 +338,14 @@ textarea {
 }
 
 .job-error {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--danger);
   line-height: 1.4;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 0.6154rem;
+  height: 0.6154rem;
   border-radius: 50%;
   flex: 0 0 auto;
   background: var(--text-dim);
@@ -361,7 +379,7 @@ textarea {
 }
 
 .status-label {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -371,8 +389,8 @@ textarea {
 
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(9.2308rem, 1fr));
+  gap: 0.6154rem;
 }
 
 .gallery-tile {
@@ -380,7 +398,7 @@ textarea {
   aspect-ratio: 1;
   border-radius: var(--radius);
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   background: var(--bg-input);
   cursor: pointer;
   padding: 0;
@@ -400,14 +418,14 @@ textarea {
 
 .gallery-tile-selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow: 0 0 0 0.1538rem var(--accent);
 }
 
 .empty-state {
-  padding: 20px 12px;
+  padding: 1.5385rem 0.9231rem;
   text-align: center;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.6;
 }
 
@@ -417,30 +435,30 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 240px;
+  min-height: 18.4615rem;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 0.9231rem;
 }
 
 .preview-stage img {
   max-width: 100%;
   max-height: 60vh;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: 0.3077rem;
 }
 
 .compare-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 0.7692rem;
 }
 
 .compare-cell {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.4615rem;
 }
 
 .compare-cell img {
@@ -448,12 +466,12 @@ textarea {
   max-height: 45vh;
   object-fit: contain;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
 }
 
 .compare-label {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -464,7 +482,7 @@ textarea {
 .mask-stage {
   position: relative;
   display: inline-block;
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--bg-raised);
@@ -486,7 +504,7 @@ textarea {
 
 .mask-tools {
   display: flex;
-  gap: 8px;
+  gap: 0.6154rem;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -496,31 +514,31 @@ textarea {
 .asset-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.4615rem;
 }
 
 .asset-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px;
-  border: 1px solid var(--border);
+  gap: 0.6154rem;
+  padding: 0.4615rem;
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-input);
 }
 
 .asset-thumb {
-  width: 40px;
-  height: 40px;
+  width: 3.0769rem;
+  height: 3.0769rem;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 0.3077rem;
   background: var(--bg);
   flex: 0 0 auto;
 }
 
 .asset-name {
   flex: 1;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -537,42 +555,42 @@ textarea {
   align-items: center;
   justify-content: center;
   z-index: 50;
-  padding: 24px;
+  padding: 1.8462rem;
 }
 
 .modal {
   background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border: 0.0769rem solid var(--border-strong);
+  border-radius: 0.6154rem;
   width: 100%;
-  max-width: 520px;
+  max-width: 40rem;
   max-height: 85vh;
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1.5385rem 4.6154rem rgba(0, 0, 0, 0.5);
 }
 
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
+  padding: 0.9231rem 1.0769rem;
+  border-bottom: 0.0769rem solid var(--border);
   font-weight: 600;
 }
 
 .modal-body {
-  padding: 14px;
+  padding: 1.0769rem;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.9231rem;
 }
 
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid var(--border);
+  gap: 0.6154rem;
+  padding: 0.9231rem 1.0769rem;
+  border-top: 0.0769rem solid var(--border);
 }
 
 /* ---------- Presets ---------- */
@@ -580,15 +598,15 @@ textarea {
 .preset-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.4615rem;
 }
 
 .preset-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
+  gap: 0.6154rem;
+  padding: 0.4615rem 0.6154rem;
+  border: 0.0769rem solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-input);
 }
@@ -599,7 +617,7 @@ textarea {
   background: none;
   border: none;
   padding: 0;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--text);
 }
 
@@ -607,17 +625,17 @@ textarea {
 
 .toast {
   position: fixed;
-  bottom: 16px;
+  bottom: 1.2308rem;
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
+  border: 0.0769rem solid var(--border-strong);
   border-radius: var(--radius);
-  padding: 9px 14px;
-  font-size: 12px;
+  padding: 0.6923rem 1.0769rem;
+  font-size: 0.9231rem;
   max-width: 70vw;
   z-index: 100;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0.6154rem 1.8462rem rgba(0, 0, 0, 0.4);
 }
 
 .toast-error {
@@ -633,11 +651,11 @@ textarea {
 /* ---------- Notices ---------- */
 
 .notice {
-  padding: 8px 10px;
+  padding: 0.6154rem 0.7692rem;
   border-radius: var(--radius);
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1.5;
-  border: 1px solid var(--border);
+  border: 0.0769rem solid var(--border);
   background: var(--bg-input);
   color: var(--text-muted);
 }
@@ -656,7 +674,7 @@ textarea {
 
 .mono {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 0.8462rem;
 }
 
 .text-muted {
@@ -669,7 +687,7 @@ textarea {
 
 .row {
   display: flex;
-  gap: 8px;
+  gap: 0.6154rem;
   align-items: center;
 }
 
@@ -685,7 +703,7 @@ textarea {
 .scroll-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 320px;
+  gap: 0.4615rem;
+  max-height: 24.6154rem;
   overflow-y: auto;
 }

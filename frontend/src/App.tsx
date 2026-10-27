@@ -10,7 +10,7 @@
  * talks to PocketBase or MiniMax directly.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Events } from '@wailsio/runtime';
 
@@ -35,6 +35,7 @@ import type {
   StyleType,
 } from './invoke-adapter/types';
 import * as api from './wails-bindings';
+import { applyZoom } from './ui/zoom';
 import { AssetPanel } from './features/generation/AssetPanel';
 import { ParameterPanel } from './features/generation/ParameterPanel';
 import { PromptEditor } from './features/generation/PromptEditor';
@@ -131,6 +132,25 @@ function App() {
         styleWeight: settings.defaults.style_weight || 0.8,
       };
     });
+  }, [settingsQuery.data]);
+
+  // Apply the stored interface zoom as soon as the settings arrive.
+  //
+  // The zoom is also previewed live in the settings dialog, so the
+  // persisted value is only re-applied when it actually changes. That
+  // stops a settings refetch from cancelling the live preview.
+  const appliedZoomRef = useRef<number | null>(null);
+  useEffect(() => {
+    const settings = settingsQuery.data;
+    if (!settings) {
+      return;
+    }
+    const zoom = settings.ui?.zoom ?? 100;
+    if (appliedZoomRef.current === zoom) {
+      return;
+    }
+    appliedZoomRef.current = zoom;
+    applyZoom(zoom);
   }, [settingsQuery.data]);
 
   // Apply the capability gate whenever the capabilities change.
@@ -308,6 +328,17 @@ function App() {
   const testConnectionMutation = useMutation({
     mutationFn: () => api.testCredentials(),
     onSuccess: () => notify('MiniMax credentials are valid.', 'success'),
+    onError: (error: unknown) => {
+      notify(error instanceof Error ? error.message : String(error), 'error');
+    },
+  });
+
+  const uiMutation = useMutation({
+    mutationFn: (ui: Settings['ui']) => api.saveUI(ui),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      notify('Appearance saved.', 'success');
+    },
     onError: (error: unknown) => {
       notify(error instanceof Error ? error.message : String(error), 'error');
     },
@@ -599,6 +630,12 @@ function App() {
         }
         onTest={() => testConnectionMutation.mutate()}
         onSaveDefaults={(defaults) => defaultsMutation.mutate(defaults)}
+        onSaveUI={(ui) => {
+          // Apply it straight away so the user sees the result, then
+          // persist it.
+          applyZoom(ui.zoom);
+          uiMutation.mutate(ui);
+        }}
       />
 
       {toast && (

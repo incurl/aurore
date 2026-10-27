@@ -44,12 +44,7 @@ export type Defaults = PocketBaseModels.Defaults;
  *
  * The API key is never returned by the backend, only its presence.
  */
-export type Settings = {
-  has_api_key: boolean;
-  base_url: string;
-  model: string;
-  defaults: Defaults;
-};
+export type Settings = BindingsModels.SettingsView;
 
 /**
  * The Wails event name emitted when a job changes state.
@@ -196,6 +191,13 @@ export function saveDefaults(defaults: Settings['defaults']): Promise<void> {
  */
 export function testCredentials(): Promise<void> {
   return AppServiceBindings.TestCredentials() as Promise<void>;
+}
+
+/**
+ * Stores the interface preferences, including the zoom level.
+ */
+export function saveUI(ui: { zoom: number; theme: string }): Promise<void> {
+  return AppServiceBindings.SaveUI(ui as never) as unknown as Promise<void>;
 }
 
 /**

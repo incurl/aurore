@@ -125,6 +125,8 @@ type SettingsView struct {
 	Model string `json:"model"`
 	// Defaults are the default generation preferences.
 	Defaults pocketbase.Defaults `json:"defaults"`
+	// UI holds the interface preferences, including the zoom level.
+	UI pocketbase.UI `json:"ui"`
 }
 
 // GetSettings returns the current settings.
@@ -155,7 +157,18 @@ func (s *AppService) GetSettings() (SettingsView, error) {
 	}
 	view.Defaults = defaults
 
+	ui, err := s.settings.GetUI()
+	if err != nil {
+		return SettingsView{}, err
+	}
+	view.UI = ui
+
 	return view, nil
+}
+
+// SaveUI stores the interface preferences.
+func (s *AppService) SaveUI(ui pocketbase.UI) error {
+	return s.settings.SetUI(ui)
 }
 
 // SaveCredentials stores the MiniMax credentials.

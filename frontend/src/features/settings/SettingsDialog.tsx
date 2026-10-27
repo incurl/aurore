@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 
 import type { Settings } from '../../invoke-adapter/types';
+import { applyZoom, clampZoom, MAX_ZOOM, MIN_ZOOM, ZOOM_PRESETS } from '../../ui/zoom';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -19,6 +20,7 @@ interface SettingsDialogProps {
   onSave: (apiKey: string, baseUrl: string, model: string) => void;
   onTest: () => void;
   onSaveDefaults: (defaults: Settings['defaults']) => void;
+  onSaveUI: (ui: Settings['ui']) => void;
 }
 
 /**
@@ -31,12 +33,17 @@ export function SettingsDialog({
   onSave,
   onTest,
   onSaveDefaults,
+  onSaveUI,
 }: SettingsDialogProps) {
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('image-01');
   const [batchSize, setBatchSize] = useState(1);
   const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [zoom, setZoom] = useState(100);
+  // The persisted zoom, used to restore the interface when the dialog is
+  // closed without saving.
+  const [savedZoom, setSavedZoom] = useState(100);
 
   useEffect(() => {
     if (!settings) {
@@ -46,6 +53,8 @@ export function SettingsDialog({
     setModel(settings.model);
     setBatchSize(settings.defaults.batch_size);
     setAspectRatio(settings.defaults.aspect_ratio);
+    setZoom(settings.ui?.zoom ?? 100);
+    setSavedZoom(settings.ui?.zoom ?? 100);
   }, [settings]);
 
   if (!open) {
@@ -57,7 +66,17 @@ export function SettingsDialog({
       <div className="modal">
         <div className="modal-header">
           <span>Settings</span>
-          <button type="button" className="btn btn-sm" onClick={onClose}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              // The zoom is applied live, so closing without saving has
+              // to put it back.
+              applyZoom(savedZoom);
+              setZoom(savedZoom);
+              onClose();
+            }}
+          >
             Close
           </button>
         </div>
@@ -137,6 +156,46 @@ export function SettingsDialog({
               </select>
             </div>
           </div>
+          <div className="field">
+            <label className="field-label" htmlFor="settings-zoom">
+              Interface zoom
+              <span className="text-dim">{zoom}%</span>
+            </label>
+            <input
+              id="settings-zoom"
+              type="range"
+              min={MIN_ZOOM}
+              max={MAX_ZOOM}
+              step={5}
+              value={zoom}
+              onChange={(event) => {
+                const next = clampZoom(Number(event.target.value));
+                setZoom(next);
+                // Apply it straight away: a zoom control that only
+                // takes effect after saving feels broken.
+                applyZoom(next);
+              }}
+            />
+            <div className="row" style={{ flexWrap: 'wrap', gap: '4px' }}>
+              {ZOOM_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setZoom(preset);
+                    applyZoom(preset);
+                  }}
+                  disabled={zoom === preset}
+                >
+                  {preset}%
+                </button>
+              ))}
+            </div>
+            <span className="field-hint">
+              Scales the whole interface. Takes effect immediately.
+            </span>
+          </div>
         </div>
 
         <div className="modal-footer">
@@ -164,6 +223,20 @@ export function SettingsDialog({
             }
           >
             Save defaults
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              const next = clampZoom(zoom);
+              setSavedZoom(next);
+              onSaveUI({
+                zoom: next,
+                theme: settings?.ui?.theme ?? 'dark',
+              });
+            }}
+          >
+            Save appearance
           </button>
           <button type="button" className="btn" onClick={onTest}>
             Test connection
