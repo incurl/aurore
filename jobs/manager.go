@@ -434,7 +434,7 @@ func (m *Manager) assetBytes(assetID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find asset %q: %w", assetID, err)
 	}
-	return readFileBytes(record)
+	return readFileBytes(m.app, record)
 }
 
 // assetDataURL renders an uploaded asset as a base64 data URL, which is

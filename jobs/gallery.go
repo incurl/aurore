@@ -103,7 +103,10 @@ func (m *Manager) toImage(record *core.Record) Image {
 		Created:  record.GetString("created"),
 	}
 
-	if name := record.GetString("file_name"); name != "" {
+	// The file field holds the stored filename, which includes the
+	// random suffix PocketBase appends. It is the exact name the file
+	// route expects.
+	if name := record.GetString("file"); name != "" {
 		image.URL = fileURL(record.Id, name)
 	}
 	if thumb := record.GetString("thumbnail"); thumb != "" {
@@ -136,5 +139,5 @@ func (m *Manager) ExportImageBytes(imageID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find image %q: %w", imageID, err)
 	}
-	return readFileBytes(record)
+	return readFileBytes(m.app, record)
 }

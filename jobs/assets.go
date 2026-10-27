@@ -127,20 +127,33 @@ func (m *Manager) AssetBytes(assetID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find asset %q: %w", assetID, err)
 	}
-	return readFileBytes(record)
+	return readFileBytes(m.app, record)
 }
 
 // readFileBytes reads the bytes of a record's file attachment.
-func readFileBytes(record *core.Record) ([]byte, error) {
-	file, ok := record.Get("file").(*filesystem.File)
-	if !ok || file == nil {
+//
+// PocketBase stores file fields as the generated filename on the record,
+// and keeps the bytes in the collection's storage directory. The
+// filesystem is therefore resolved through the app, exactly as the
+// built-in file route does.
+func readFileBytes(app core.App, record *core.Record) ([]byte, error) {
+	filename := record.GetString("file")
+	if filename == "" {
 		return nil, fmt.Errorf("record has no file")
 	}
-	reader, err := file.Reader.Open()
+
+	fsys, err := app.NewFilesystem()
 	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
+		return nil, fmt.Errorf("create filesystem: %w", err)
+	}
+	defer fsys.Close()
+
+	reader, err := fsys.GetFile(record.BaseFilesPath() + "/" + filename)
+	if err != nil {
+		return nil, fmt.Errorf("open file %q: %w", filename, err)
 	}
 	defer reader.Close()
+
 	return io.ReadAll(reader)
 }
 
