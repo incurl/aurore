@@ -1,63 +1,125 @@
+// Aurore is a self-contained desktop image generation application.
+//
+// The UI shell is derived from the InvokeAI web frontend (Apache-2.0),
+// but InvokeAI is used purely as a UI component library: no part of its
+// native diffusion backend, model runtime or workflow engine is
+// included. Every generation request is sent to the remote MiniMax
+// Image-01 API.
+//
+// Persistence, file storage, migrations and access rules are provided by
+// PocketBase, embedded as a Go library. PocketBase is never run as a
+// standalone process: its REST and file API is mounted on the Wails
+// asset server so images are served from the UI's own origin.
 package main
 
 import (
+	"context"
 	"embed"
-
+	"fmt"
 	"log"
-	"time"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/incurl/aurore/bindings"
+	"github.com/incurl/aurore/jobs"
+	"github.com/incurl/aurore/minimax"
+	"github.com/incurl/aurore/pocketbase"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// Wails uses Go's `embed` package to embed the frontend files into the binary.
-// Any files in the frontend/dist folder will be embedded into the binary and
-// made available to the frontend.
-// See https://pkg.go.dev/embed for more information.
-
+// Wails embeds the built frontend. Any file in frontend/dist is served to
+// the webview.
+//
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func init() {
-	// Register a custom event whose associated data type is string.
-	// This is not required, but the binding generator will pick up registered events
-	// and provide a strongly typed JS/TS API for them.
-	application.RegisterEvent[string]("time")
+	// Register the job update event so the binding generator produces a
+	// strongly typed TS API for it.
+	application.RegisterEvent[jobs.Job]("job:updated")
 }
 
-// main function serves as the application's entry point. It initializes the application, creates a window,
-// and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
-// logs any error that might occur.
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
 
-	// Create a new Wails application by providing the necessary options.
-	// Variables 'Name' and 'Description' are for application metadata.
-	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
-	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
-	// 'Mac' options tailor the application when running an macOS.
+// run bootstraps the backend and starts the Wails application.
+func run() error {
+	// --- PocketBase ------------------------------------------------
+	pbService := pocketbase.NewService(pocketbase.DefaultDataDir())
+	if err := pbService.Bootstrap(); err != nil {
+		return fmt.Errorf("bootstrap pocketbase: %w", err)
+	}
+
+	cipher, err := pocketbase.NewCipher(pbService.DataDir())
+	if err != nil {
+		return fmt.Errorf("initialise settings encryption: %w", err)
+	}
+	settings := pocketbase.NewSettingsStore(pbService.App(), cipher)
+
+	// The event bridge pushes job updates to the frontend. It is created
+	// once the Wails application exists, so it is declared here and
+	// assigned later.
+	var bridge *bindings.EventBridge
+
+	// The job manager builds a MiniMax client from the currently
+	// configured credentials for every job.
+	jobManager := jobs.NewManager(
+		pbService.App(),
+		jobs.WithEmitter(bridge),
+		jobs.WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			apiKey, found, err := settings.GetAPIKey()
+			if err != nil {
+				return nil, err
+			}
+			if !found || apiKey == "" {
+				return nil, fmt.Errorf("no MiniMax API key is configured. Add one in Settings.")
+			}
+			baseURL, err := settings.GetBaseURL()
+			if err != nil {
+				return nil, err
+			}
+			return minimax.NewClient(apiKey, minimax.WithBaseURL(baseURL)), nil
+		}),
+	)
+
+	appService := bindings.NewAppService(pbService, settings, jobManager)
+
+	// Mount PocketBase's own REST and file API alongside the static
+	// frontend. This keeps everything on a single origin: no extra
+	// port, no separate PocketBase process and no CORS handling.
+	pbHandler, handlerErr := pbService.Handler()
+	if handlerErr != nil {
+		return fmt.Errorf("create pocketbase handler: %w", handlerErr)
+	}
+
+	// --- Wails application -----------------------------------------
 	app := application.New(application.Options{
-		Name:        "aurore",
-		Description: "A demo of using raw HTML & CSS",
+		Name:        "Aurore",
+		Description: "AI image generation powered by MiniMax Image-01",
 		Services: []application.Service{
-			application.NewService(&GreetService{}),
+			application.NewService(appService),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler: combineHandlers(pbHandler, application.AssetFileServerFS(assets)),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
 
-	// Create a new window with the necessary options.
-	// 'Title' is the title of the window.
-	// 'Mac' options tailor the window when running on macOS.
-	// 'BackgroundColour' is the background colour of the window.
-	// 'URL' is the URL that will be loaded into the webview.
+	// The event bridge pushes job updates to the frontend.
+	bridge = bindings.NewEventBridge(app)
+	jobManager.SetEmitter(bridge)
+
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Window 1",
-		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
-		Width:  1000,
-		Height: 618,
+		Title:  "Aurore",
+		Width:  1440,
+		Height: 900,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -67,21 +129,27 @@ func main() {
 		URL:              "/",
 	})
 
-	// Create a goroutine that emits an event containing the current time every second.
-	// The frontend can listen to this event and update the UI accordingly.
-	go func() {
-		for {
-			now := time.Now().Format(time.RFC1123)
-			app.Event.Emit("time", now)
-			time.Sleep(time.Second)
+	return app.Run()
+}
+
+// combineHandlers routes /api/* to the PocketBase handler and everything
+// else to the static frontend.
+func combineHandlers(apiHandler, staticHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			apiHandler.ServeHTTP(w, r)
+			return
 		}
-	}()
+		staticHandler.ServeHTTP(w, r)
+	})
+}
 
-	// Run the application. This blocks until the application has been exited.
-	err := app.Run()
-
-	// If an error occurred while running the application, log it and exit.
-	if err != nil {
-		log.Fatal(err)
+// dataDirForTesting returns the data directory, honouring the
+// AURORE_DATA_DIR environment variable. It exists so tests can run
+// against an isolated database.
+func dataDirForTesting() string {
+	if dir := os.Getenv("AURORE_DATA_DIR"); dir != "" {
+		return dir
 	}
+	return filepath.Join(".", "pb_data")
 }
