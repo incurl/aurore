@@ -13,6 +13,7 @@ import * as AppServiceBindings from '../../bindings/github.com/incurl/aurore/bin
 import * as JobsModels from '../../bindings/github.com/incurl/aurore/jobs/models';
 import * as BindingsModels from '../../bindings/github.com/incurl/aurore/bindings/models';
 import * as PocketBaseModels from '../../bindings/github.com/incurl/aurore/pocketbase/models';
+import * as ConsoleModels from '../../bindings/github.com/incurl/aurore/console/models';
 
 import type { GenerationRequest } from '../invoke-adapter/types';
 
@@ -38,6 +39,7 @@ export type Capabilities = BindingsModels.Capabilities & {
 };
 export type SettingsView = BindingsModels.SettingsView;
 export type Defaults = PocketBaseModels.Defaults;
+export type ConsoleEntry = ConsoleModels.Entry;
 
 /**
  * The application settings as seen by the UI.
@@ -52,10 +54,29 @@ export type Settings = BindingsModels.SettingsView;
 export const EVENT_JOB_UPDATED = 'job:updated';
 
 /**
+ * The Wails event name emitted when a debug console entry is added.
+ */
+export const EVENT_CONSOLE_ENTRY = 'console:entry';
+
+/**
  * Submits a generation job.
  */
 export function submitJob(request: GenerationRequest): Promise<Job> {
   return AppServiceBindings.SubmitJob(request as never) as unknown as Promise<Job>;
+}
+
+/**
+ * Lists the recorded debug console entries, oldest first.
+ */
+export function listConsoleEntries(): Promise<ConsoleEntry[]> {
+  return AppServiceBindings.ListConsoleEntries() as unknown as Promise<ConsoleEntry[]>;
+}
+
+/**
+ * Discards the recorded debug console entries.
+ */
+export function clearConsoleEntries(): Promise<void> {
+  return AppServiceBindings.ClearConsoleEntries() as Promise<void>;
 }
 
 /**

@@ -44,6 +44,7 @@ import { MaskCanvas } from './features/mask/MaskCanvas';
 import { PresetPanel } from './features/presets/PresetPanel';
 import { JobQueue } from './features/queue/JobQueue';
 import { SettingsDialog } from './features/settings/SettingsDialog';
+import { ConsolePanel } from './features/console/ConsolePanel';
 
 interface Toast {
   message: string;
@@ -184,6 +185,54 @@ function App() {
       off();
     };
   }, [queryClient]);
+
+  // --- Debug console -------------------------------------------------
+
+  // The console entries are held in the frontend so that the panel
+  // updates immediately. The backend keeps its own copy, which is read
+  // once at startup.
+  const [consoleEntries, setConsoleEntries] = useState<api.ConsoleEntry[]>([]);
+
+  // Listen for console entries pushed from Go.
+  useEffect(() => {
+    const off = Events.On(api.EVENT_CONSOLE_ENTRY, (event) => {
+      const entry = event.data;
+      setConsoleEntries((current) => {
+        const next = [...current, entry];
+        // Keep the panel bounded, matching the backend limit.
+        return next.length > 500 ? next.slice(next.length - 500) : next;
+      });
+    });
+    return () => {
+      off();
+    };
+  }, []);
+
+  // Load the entries that were recorded before the window opened.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .listConsoleEntries()
+      .then((entries) => {
+        if (!cancelled && entries) {
+          setConsoleEntries(entries);
+        }
+      })
+      .catch(() => {
+        // The console is a debugging aid, so a failure to read it is
+        // not worth reporting.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const clearConsole = useCallback(() => {
+    setConsoleEntries([]);
+    void api.clearConsoleEntries().catch(() => {
+      // The panel is cleared locally regardless.
+    });
+  }, []);
 
   // --- Mutations ----------------------------------------------------
 
@@ -620,6 +669,8 @@ function App() {
           onExport={(imageId) => exportMutation.mutate(imageId)}
         />
       </aside>
+
+      <ConsolePanel entries={consoleEntries} onClear={clearConsole} />
 
       <SettingsDialog
         open={settingsOpen}

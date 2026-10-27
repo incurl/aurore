@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/incurl/aurore/bindings"
+	"github.com/incurl/aurore/console"
 	"github.com/incurl/aurore/jobs"
 	"github.com/incurl/aurore/minimax"
 	"github.com/incurl/aurore/pocketbase"
@@ -38,6 +39,9 @@ func init() {
 	// Register the job update event so the binding generator produces a
 	// strongly typed TS API for it.
 	application.RegisterEvent[jobs.Job]("job:updated")
+
+	// The debug console entry event, likewise.
+	application.RegisterEvent[console.Entry]("console:entry")
 }
 
 func main() {
@@ -65,11 +69,16 @@ func run() error {
 	// assigned later.
 	var bridge *bindings.EventBridge
 
+	// The debug console records the API traffic for the panel at the
+	// bottom of the window.
+	consoleLog := console.New()
+
 	// The job manager builds a MiniMax client from the currently
 	// configured credentials for every job.
 	jobManager := jobs.NewManager(
 		pbService.App(),
 		jobs.WithEmitter(bridge),
+		jobs.WithLog(consoleLog),
 		jobs.WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
 			apiKey, found, err := settings.GetAPIKey()
 			if err != nil {
@@ -86,7 +95,7 @@ func run() error {
 		}),
 	)
 
-	appService := bindings.NewAppService(pbService, settings, jobManager)
+	appService := bindings.NewAppService(pbService, settings, jobManager, consoleLog)
 
 	// Mount PocketBase's own REST and file API alongside the static
 	// frontend. This keeps everything on a single origin: no extra
@@ -114,6 +123,7 @@ func run() error {
 	// The event bridge pushes job updates to the frontend.
 	bridge = bindings.NewEventBridge(app)
 	jobManager.SetEmitter(bridge)
+	consoleLog.SetEmitter(bridge)
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Aurore",

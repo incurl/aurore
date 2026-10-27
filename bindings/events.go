@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"github.com/incurl/aurore/console"
 	"github.com/incurl/aurore/jobs"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -8,6 +9,10 @@ import (
 // EventJobUpdated is emitted whenever a job changes state. The payload is
 // a jobs.Job.
 const EventJobUpdated = "job:updated"
+
+// EventConsoleEntry is emitted whenever a debug console entry is added.
+// The payload is a console.Entry.
+const EventConsoleEntry = "console:entry"
 
 // EventBridge pushes job updates to the frontend as Wails events.
 //
@@ -28,4 +33,12 @@ func (b *EventBridge) EmitJobUpdated(job jobs.Job) {
 		return
 	}
 	b.app.Event.Emit(EventJobUpdated, job)
+}
+
+// EmitConsoleEntry implements console.Emitter.
+func (b *EventBridge) EmitConsoleEntry(entry console.Entry) {
+	if b == nil || b.app == nil {
+		return
+	}
+	b.app.Event.Emit(EventConsoleEntry, entry)
 }

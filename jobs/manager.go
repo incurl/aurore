@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/incurl/aurore/console"
 	"github.com/incurl/aurore/minimax"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -31,6 +32,9 @@ type Manager struct {
 
 	// emitterFn lazily resolves the emitter, if one was configured.
 	emitterFn func() EventEmitter
+
+	// log records the API traffic for the debug console. It may be nil.
+	log *console.Log
 
 	// mu guards the cancellation map.
 	mu sync.Mutex
@@ -59,6 +63,12 @@ func WithEmitterFunc(fn func() EventEmitter) ManagerOption {
 // WithClientFactory sets the factory used to build MiniMax clients.
 func WithClientFactory(f func(ctx context.Context) (*minimax.Client, error)) ManagerOption {
 	return func(m *Manager) { m.clientFactory = f }
+}
+
+// WithLog attaches the debug console log, so that the API traffic is
+// recorded for the console panel.
+func WithLog(l *console.Log) ManagerOption {
+	return func(m *Manager) { m.log = l }
 }
 
 // WithConcurrency sets the number of jobs executed in parallel.
@@ -264,10 +274,13 @@ func (m *Manager) execute(ctx context.Context, jobID string, req Request) error 
 	}
 
 	apiReq := req.toMiniMaxRequest(referenceDataURL)
+	m.logInfo(jobID, "requesting image from MiniMax")
 	result, err := client.Generate(ctx, apiReq)
 	if err != nil {
+		m.logAPIError(jobID, err)
 		return err
 	}
+	m.logInfo(jobID, "MiniMax accepted the request, task "+result.TaskID)
 
 	// Persist the task id and the effective seed.
 	record.Set("minimax_task_id", result.TaskID)
@@ -394,6 +407,42 @@ func (m *Manager) fail(jobID string, cause error) {
 		return
 	}
 	m.emitRecord(record)
+}
+
+// logInfo records a normal event for the debug console.
+func (m *Manager) logInfo(jobID, message string) {
+	if m.log == nil {
+		return
+	}
+	m.log.Info("job "+jobID, message)
+}
+
+// logAPIError records a MiniMax failure for the debug console.
+//
+// The raw response body is included when the API returned one, so that
+// an unexpected response can be inspected.
+func (m *Manager) logAPIError(jobID string, cause error) {
+	if m.log == nil {
+		return
+	}
+
+	source := "job " + jobID
+	var apiErr *minimax.Error
+	if ok := asMiniMaxError(cause, &apiErr); ok {
+		summary := fmt.Sprintf("MiniMax error %d: %s", apiErr.StatusCode, apiErr.Message)
+		if apiErr.HTTPStatus != 0 {
+			summary = fmt.Sprintf("MiniMax error %d (HTTP %d): %s",
+				apiErr.StatusCode, apiErr.HTTPStatus, apiErr.Message)
+		}
+		if apiErr.Raw != "" {
+			m.log.Raw(source, summary, apiErr.Raw)
+			return
+		}
+		m.log.Error(source, summary)
+		return
+	}
+
+	m.log.Error(source, cause.Error())
 }
 
 // asMiniMaxError unwraps a MiniMax API error from an error chain.

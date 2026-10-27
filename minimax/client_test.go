@@ -236,3 +236,59 @@ func TestErrorHumanMessageIsUserFacing(t *testing.T) {
 		t.Errorf("HumanMessage = %q", e.HumanMessage())
 	}
 }
+
+// TestGenerateKeepsTheRawResponseBody verifies that the raw response
+// body is kept on the error, so that the debug console can show exactly
+// what the API returned.
+func TestGenerateKeepsTheRawResponseBody(t *testing.T) {
+	body := `{"id":"3c7b1f9e2a","base_resp":{"status_code":2013,"status_msg":"invalid parameter"},"data":{"image_base64":[]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "key")
+	_, err := client.Generate(context.Background(), ImageRequest{Model: ModelImage01, Prompt: "x"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	apiErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *minimax.Error", err)
+	}
+	if apiErr.Raw == "" {
+		t.Fatal("the raw response body was not kept")
+	}
+	if apiErr.Raw != body {
+		t.Errorf("raw body = %q, want %q", apiErr.Raw, body)
+	}
+}
+
+// TestGenerateKeepsTheRawBodyOnAnHTTPFailure verifies that the body is
+// kept when the transport fails, which is where the useful detail is.
+func TestGenerateKeepsTheRawBodyOnAnHTTPFailure(t *testing.T) {
+	body := `{"base_resp":{"status_code":1004,"status_msg":"invalid api key"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "key")
+	_, err := client.Generate(context.Background(), ImageRequest{Model: ModelImage01, Prompt: "x"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	apiErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *minimax.Error", err)
+	}
+	if apiErr.Raw != body {
+		t.Errorf("raw body = %q, want %q", apiErr.Raw, body)
+	}
+	if apiErr.HTTPStatus != http.StatusUnauthorized {
+		t.Errorf("http status = %d, want %d", apiErr.HTTPStatus, http.StatusUnauthorized)
+	}
+}

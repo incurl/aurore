@@ -7,8 +7,10 @@ package bindings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/incurl/aurore/console"
 	"github.com/incurl/aurore/jobs"
 	"github.com/incurl/aurore/minimax"
 	"github.com/incurl/aurore/pocketbase"
@@ -20,6 +22,7 @@ type AppService struct {
 	pb       *pocketbase.Service
 	settings *pocketbase.SettingsStore
 	jobs     *jobs.Manager
+	console  *console.Log
 }
 
 // NewAppService creates the application service.
@@ -27,13 +30,34 @@ func NewAppService(
 	pb *pocketbase.Service,
 	settings *pocketbase.SettingsStore,
 	jobManager *jobs.Manager,
+	log *console.Log,
 ) *AppService {
-	return &AppService{pb: pb, settings: settings, jobs: jobManager}
+	return &AppService{pb: pb, settings: settings, jobs: jobManager, console: log}
 }
 
 // JobManager exposes the job manager so the Wails event bridge can
 // subscribe to job updates.
 func (s *AppService) JobManager() *jobs.Manager { return s.jobs }
+
+// Console exposes the debug console log.
+func (s *AppService) Console() *console.Log { return s.console }
+
+// ListConsoleEntries returns the recorded debug console entries,
+// oldest first.
+func (s *AppService) ListConsoleEntries() []console.Entry {
+	if s.console == nil {
+		return nil
+	}
+	return s.console.Entries()
+}
+
+// ClearConsoleEntries discards the recorded debug console entries.
+func (s *AppService) ClearConsoleEntries() {
+	if s.console == nil {
+		return
+	}
+	s.console.Clear()
+}
 
 // Settings exposes the settings store.
 func (s *AppService) Settings() *pocketbase.SettingsStore { return s.settings }
@@ -217,7 +241,25 @@ func (s *AppService) TestCredentials() error {
 	}
 
 	client := minimax.NewClient(apiKey, minimax.WithBaseURL(baseURL))
-	return client.Ping(context.Background())
+	s.console.Info("settings", "testing the MiniMax connection")
+
+	err = client.Ping(context.Background())
+	if err != nil {
+		// The failure is recorded with the raw response body, because
+		// this is where an unexpected API answer is usually spotted.
+		var apiErr *minimax.Error
+		if errors.As(err, &apiErr) && apiErr.Raw != "" {
+			s.console.Raw("settings",
+				fmt.Sprintf("MiniMax error %d: %s", apiErr.StatusCode, apiErr.Message),
+				apiErr.Raw)
+		} else if err != nil {
+			s.console.Error("settings", err.Error())
+		}
+		return err
+	}
+
+	s.console.Info("settings", "the MiniMax connection is valid")
+	return nil
 }
 
 // SubmitJob queues a generation job.

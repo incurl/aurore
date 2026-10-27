@@ -161,6 +161,10 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 	var parsed ImageResponse
 	decodeErr := json.Unmarshal(raw, &parsed)
 
+	// The raw body is kept so that the debug console can show what the
+	// API actually returned.
+	rawBody := string(raw)
+
 	// A non-2xx HTTP status is a transport/auth failure even if the body
 	// happens to decode.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -176,6 +180,7 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 			StatusCode: status,
 			Message:    msg,
 			HTTPStatus: resp.StatusCode,
+			Raw:        rawBody,
 		}
 	}
 
@@ -184,6 +189,7 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 			StatusCode: StatusInvalidParams,
 			Message:    "the MiniMax response could not be decoded",
 			HTTPStatus: resp.StatusCode,
+			Raw:        rawBody,
 			Err:        decodeErr,
 		}
 	}
@@ -193,6 +199,7 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 			StatusCode: parsed.BaseResp.StatusCode,
 			Message:    parsed.BaseResp.StatusMsg,
 			HTTPStatus: resp.StatusCode,
+			Raw:        rawBody,
 		}
 	}
 
@@ -300,7 +307,11 @@ func (c *Client) Ping(ctx context.Context) error {
 
 	var parsed ImageResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return &Error{Message: "the MiniMax response could not be decoded", Err: err}
+		return &Error{
+			Message: "the MiniMax response could not be decoded",
+			Raw:     string(raw),
+			Err:     err,
+		}
 	}
 
 	switch parsed.BaseResp.StatusCode {
@@ -312,6 +323,7 @@ func (c *Client) Ping(ctx context.Context) error {
 			StatusCode: parsed.BaseResp.StatusCode,
 			Message:    parsed.BaseResp.StatusMsg,
 			HTTPStatus: resp.StatusCode,
+			Raw:        string(raw),
 		}
 	}
 }

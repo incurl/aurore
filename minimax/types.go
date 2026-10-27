@@ -233,6 +233,10 @@ type Error struct {
 	Message string
 	// HTTPStatus is the transport level HTTP status code.
 	HTTPStatus int
+	// Raw is the unparsed response body, when one was received. The
+	// debug console shows it, so that an unexpected API response can be
+	// inspected without adding a packet capture.
+	Raw string
 	// Err is the wrapped underlying error, if any.
 	Err error
 }
