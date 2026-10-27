@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Aurore
+Comment=AI image generation desktop app
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/aurore %u
+Terminal=false
+Type=Application
+Icon=aurore
+Categories=Utility;
+StartupWMClass=aurore
+
+ 
