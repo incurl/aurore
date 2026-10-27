@@ -19,7 +19,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/incurl/aurore/bindings"
@@ -50,7 +49,7 @@ func main() {
 // run bootstraps the backend and starts the Wails application.
 func run() error {
 	// --- PocketBase ------------------------------------------------
-	pbService := pocketbase.NewService(pocketbase.DefaultDataDir())
+	pbService := pocketbase.NewService(dataDir())
 	if err := pbService.Bootstrap(); err != nil {
 		return fmt.Errorf("bootstrap pocketbase: %w", err)
 	}
@@ -144,12 +143,14 @@ func combineHandlers(apiHandler, staticHandler http.Handler) http.Handler {
 	})
 }
 
-// dataDirForTesting returns the data directory, honouring the
-// AURORE_DATA_DIR environment variable. It exists so tests can run
-// against an isolated database.
-func dataDirForTesting() string {
+// dataDir returns the directory holding the database and uploaded files.
+//
+// The AURORE_DATA_DIR environment variable overrides the default, which
+// lets the app run against an isolated database during development and
+// testing.
+func dataDir() string {
 	if dir := os.Getenv("AURORE_DATA_DIR"); dir != "" {
 		return dir
 	}
-	return filepath.Join(".", "pb_data")
+	return pocketbase.DefaultDataDir()
 }

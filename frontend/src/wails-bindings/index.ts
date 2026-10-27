@@ -24,11 +24,18 @@ export type Asset = JobsModels.Asset & { kind: 'reference' | 'mask' };
 export type Image = JobsModels.Image;
 export type Job = JobsModels.Job & {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  // The bindings are generated as interfaces, where a missing array is
+  // typed as nullable. The backend always sends an array, so it is
+  // normalised here.
+  image_ids: string[];
 };
 export type Preset = JobsModels.Preset;
 export type Request = JobsModels.Request;
 export type Params = JobsModels.Params;
-export type Capabilities = BindingsModels.Capabilities;
+export type Capabilities = BindingsModels.Capabilities & {
+  aspect_ratios: string[];
+  style_types: string[];
+};
 export type SettingsView = BindingsModels.SettingsView;
 export type Defaults = PocketBaseModels.Defaults;
 
@@ -73,15 +80,27 @@ export function retryJob(jobId: string): Promise<Job> {
 /**
  * Lists the recent jobs.
  */
-export function listJobs(limit = 50): Promise<Job[]> {
-  return AppServiceBindings.ListJobs(limit) as unknown as Promise<Job[]>;
+export async function listJobs(limit = 50): Promise<Job[]> {
+  const jobs = (await AppServiceBindings.ListJobs(limit)) as unknown as JobsModels.Job[];
+  return jobs.map(normaliseJob);
+}
+
+/**
+ * Normalises a job so that the collections it carries are always arrays.
+ */
+function normaliseJob(job: JobsModels.Job): Job {
+  return {
+    ...job,
+    status: job.status as Job['status'],
+    image_ids: job.image_ids ?? [],
+  };
 }
 
 /**
  * Returns a single job.
  */
-export function getJob(jobId: string): Promise<Job> {
-  return AppServiceBindings.GetJob(jobId) as unknown as Promise<Job>;
+export async function getJob(jobId: string): Promise<Job> {
+  return normaliseJob((await AppServiceBindings.GetJob(jobId)) as unknown as JobsModels.Job);
 }
 
 /**
@@ -182,8 +201,13 @@ export function testCredentials(): Promise<void> {
 /**
  * Returns the capability description for a model.
  */
-export function getCapabilities(model = ''): Promise<Capabilities> {
-  return AppServiceBindings.GetCapabilities(model) as unknown as Promise<Capabilities>;
+export async function getCapabilities(model = ''): Promise<Capabilities> {
+  const capabilities = (await AppServiceBindings.GetCapabilities(model)) as unknown as BindingsModels.Capabilities;
+  return {
+    ...capabilities,
+    aspect_ratios: capabilities.aspect_ratios ?? [],
+    style_types: capabilities.style_types ?? [],
+  };
 }
 
 /**

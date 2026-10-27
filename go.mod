@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.26.10
 
 require (
+	github.com/pocketbase/dbx v1.12.0
 	github.com/pocketbase/pocketbase v0.39.11
 	github.com/wailsapp/wails/v3 v3.0.0
 )
@@ -28,7 +29,6 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.23 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/pocketbase/dbx v1.12.0 // indirect
 	github.com/pocketbase/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
