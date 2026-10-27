@@ -71,9 +71,9 @@ func main() {
 		Prompt:         "a red bicycle",
 		NegativePrompt: "blurry",
 		Params: jobs.Params{
-			Model:            "image-01",
-			AspectRatio:      "16:9",
-			BatchSize:        1,
+			Model:             "image-01",
+			AspectRatio:       "16:9",
+			BatchSize:         1,
 			UseNegativePrompt: true,
 		},
 	})
