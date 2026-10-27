@@ -33,5 +33,11 @@
   "include": [
     "src",
     "bindings"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "dist",
+    "node_modules"
   ]
 }

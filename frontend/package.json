@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.37.0",
@@ -29,6 +29,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "typescript": "^5.2.2",
     "vite": "^8.2.4",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@types/node": "^22.10.2"
   }
 }
