@@ -765,6 +765,13 @@ textarea {
   font-family: var(--mono);
   font-size: 0.8462rem;
   line-height: 1.5;
+  /*
+   * The log exists to be read and copied, so its text must be
+   * selectable. Browsers default to this, but it is stated explicitly
+   * because a stray user-select: none on an ancestor would silently
+   * break copying.
+   */
+  user-select: text;
 }
 
 .console-empty {
@@ -815,6 +822,50 @@ textarea {
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  /* The message is the part readers copy, so it reads as text. */
+  cursor: text;
+  user-select: text;
+}
+
+/*
+ * The per-entry copy button stays out of the way while reading and
+ * appears when the row is hovered or focused.
+ */
+.console-entry-copy {
+  flex: none;
+  align-self: center;
+  padding: 0 0.4615rem;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 0.0769rem solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 0.6923rem;
+  line-height: 1.5;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease-in-out;
+  /*
+   * Without this the button label is swept up by a selection that
+   * spans several entries, so "Copy" would end up inside the text the
+   * reader pastes elsewhere.
+   */
+  user-select: none;
+}
+
+.console-entry:hover .console-entry-copy,
+.console-entry:focus-within .console-entry-copy {
+  opacity: 1;
+}
+
+.console-entry-copy:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.console-detail-hint {
+  color: var(--text-dim);
+  font-size: 0.6923rem;
 }
 
 .console-level-error .console-level {
@@ -864,6 +915,9 @@ textarea {
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
+  /* The raw payload is copied verbatim, so it must be selectable. */
+  user-select: text;
+  cursor: text;
 }
 
 .btn-active {

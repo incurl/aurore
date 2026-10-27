@@ -9,7 +9,7 @@
  * point is to read a raw API response verbatim.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { ConsoleEntry } from '../../wails-bindings';
 
@@ -62,6 +62,74 @@ export function formatDetail(detail: string): string {
 }
 
 /**
+ * Renders one entry as plain text, for the clipboard.
+ */
+export function entryToText(entry: ConsoleEntry): string {
+  const head = `${entry.time} [${entry.level}] ${entry.source}: ${entry.message}`;
+  const detail = formatDetail(entry.detail);
+  return detail ? `${head}\n${detail}` : head;
+}
+
+/**
+ * Renders several entries as plain text, one per block.
+ */
+export function entriesToText(entries: ConsoleEntry[]): string {
+  return entries.map(entryToText).join('\n');
+}
+
+/**
+ * Writes text to the clipboard.
+ *
+ * navigator.clipboard needs a secure context and a user gesture, which a
+ * webview does not always provide. When it is unavailable the legacy
+ * copy command is used instead: without it the copy buttons would
+ * silently do nothing in the native window.
+ *
+ * Reports whether the text reached the clipboard.
+ */
+export async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy path.
+  }
+
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    // Keep it out of sight without using display:none, which would make
+    // it unselectable and break the copy command.
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(area);
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reports whether the user is dragging over text rather than clicking.
+ *
+ * Selecting a message used to also toggle the detail view, because the
+ * click that ends a drag fired the row handler. The selection is checked
+ * so that reading the log and copying from it stay out of each other's
+ * way.
+ */
+export function hasTextSelection(): boolean {
+  const selection = window.getSelection();
+  return selection !== null && selection.toString().trim() !== '';
+}
+
+/**
  * The debug console panel.
  */
 export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
@@ -69,7 +137,8 @@ export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
   const [filter, setFilter] = useState<LevelFilter>('all');
   const [follow, setFollow] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
+  // Identifies what was last copied, so only that button reports success.
+  const [copied, setCopied] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const visible = entries.filter((entry) => matchesFilter(entry, filter));
@@ -91,29 +160,42 @@ export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
 
   // Clear the copied marker after a moment.
   useEffect(() => {
-    if (!copied) {
+    if (copied === null) {
       return;
     }
-    const timer = window.setTimeout(() => setCopied(false), 1500);
+    const timer = window.setTimeout(() => setCopied(null), 1500);
     return () => window.clearTimeout(timer);
   }, [copied]);
 
-  const copyAll = async () => {
-    const text = visible
-      .map((entry) => {
-        const detail = formatDetail(entry.detail);
-        const head = `${entry.time} [${entry.level}] ${entry.source}: ${entry.message}`;
-        return detail ? `${head}\n${detail}` : head;
-      })
-      .join('\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-    } catch {
-      // The clipboard is unavailable in some webview configurations, so
-      // the failure is ignored: the text is still on screen.
+  /**
+   * Copies text and marks the given control as the source.
+   *
+   * The marker is only set when the text really reached the clipboard,
+   * so a failing copy does not claim success.
+   */
+  const copy = useCallback(async (key: string, text: string) => {
+    const ok = await writeClipboard(text);
+    if (ok) {
+      setCopied(key);
     }
-  };
+  }, []);
+
+  /**
+   * Toggles the detail view for an entry.
+   *
+   * A drag that selects text must not also toggle: the click that ends
+   * the drag arrives here, and toggling would close whatever the reader
+   * was selecting.
+   */
+  const toggleEntry = useCallback(
+    (entryId: number) => {
+      if (hasTextSelection()) {
+        return;
+      }
+      setSelected((current) => (current === entryId ? null : entryId));
+    },
+    [],
+  );
 
   const active =
     selected === null ? null : entries.find((entry) => entry.id === selected) ?? null;
@@ -163,8 +245,13 @@ export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
           Follow
         </button>
 
-        <button type="button" className="btn btn-sm" onClick={() => void copyAll()}>
-          {copied ? 'Copied' : 'Copy'}
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => void copy('all', entriesToText(visible))}
+          title="Copy every visible entry"
+        >
+          {copied === 'all' ? 'Copied' : 'Copy'}
         </button>
 
         <button
@@ -192,13 +279,13 @@ export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
                 className={`console-entry console-level-${entry.level}${
                   selected === entry.id ? ' console-entry-selected' : ''
                 }`}
-                onClick={() => setSelected(selected === entry.id ? null : entry.id)}
+                onClick={() => toggleEntry(entry.id)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    setSelected(selected === entry.id ? null : entry.id);
+                    toggleEntry(entry.id);
                   }
                 }}
               >
@@ -206,6 +293,20 @@ export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
                 <span className="console-level">{entry.level}</span>
                 <span className="console-source">{entry.source}</span>
                 <span className="console-message">{entry.message}</span>
+                <button
+                  type="button"
+                  className="console-entry-copy"
+                  title="Copy this entry"
+                  aria-label={`Copy the ${entry.level} entry from ${entry.source}`}
+                  onClick={(event) => {
+                    // The row toggles the detail view; the copy button
+                    // must not.
+                    event.stopPropagation();
+                    void copy(`entry:${entry.id}`, entryToText(entry));
+                  }}
+                >
+                  {copied === `entry:${entry.id}` ? 'Copied' : 'Copy'}
+                </button>
               </div>
             ))
           )}
@@ -219,8 +320,13 @@ export function ConsolePanel({ entries, onClear }: ConsolePanelProps) {
               {active.time} · {active.source}
             </span>
             <span className="grow" />
-            <button type="button" className="btn btn-sm" onClick={() => void copyAll()}>
-              {copied ? 'Copied' : 'Copy all'}
+            <span className="console-detail-hint">Select the text to copy it</span>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => void copy(`detail:${active.id}`, formatDetail(active.detail))}
+            >
+              {copied === `detail:${active.id}` ? 'Copied' : 'Copy'}
             </button>
           </div>
           <pre className="console-detail-body">{formatDetail(active.detail)}</pre>
