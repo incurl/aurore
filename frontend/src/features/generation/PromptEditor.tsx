@@ -5,14 +5,19 @@
  * prompt, a negative prompt and a character counter that reflects the
  * MiniMax limit.
  *
- * The negative prompt is labelled clearly because MiniMax Image-01 has no
- * negative_prompt field: the value is folded into the positive prompt
+ * The prompt fields themselves are the vendored InvokeAI components:
+ * `PromptTextarea` provides the resizable, syntax-highlighting editor
+ * with the line number gutter.
+ *
+ * The negative prompt is labelled clearly because MiniMax Image-01 has
+ * no negative_prompt field: the value is folded into the positive prompt
  * before the request is sent.
  */
 
 import { useMemo } from 'react';
 
 import { MAX_PROMPT_LENGTH } from '../../invoke-adapter/parameters';
+import { PromptTextarea } from '../../wrapped-invoke-ui/features/generation/ui/promptFields/PromptTextarea';
 
 interface PromptEditorProps {
   prompt: string;
@@ -50,26 +55,35 @@ export function PromptEditor({
           <label className="field-label" htmlFor="prompt-positive">
             Positive prompt
           </label>
-          <textarea
-            id="prompt-positive"
-            rows={7}
-            value={prompt}
-            placeholder="A man in a white t-shirt, full-body, standing front view, outdoors, with the Venice Beach sign in the background…"
-            onChange={(event) => onPromptChange(event.target.value)}
-          />
+          <div id="prompt-positive">
+            <PromptTextarea
+              value={prompt}
+              onChange={(event) => onPromptChange(event.target.value)}
+              showSyntaxHighlighting={false}
+              attentionSyntax="none"
+              showLineNumbers
+              minHeightPx={96}
+              defaultHeightPx={144}
+              resizeHandleAriaLabel="Resize the prompt editor"
+            />
+          </div>
         </div>
 
         <div className="field">
           <label className="field-label" htmlFor="prompt-negative">
             Negative prompt
           </label>
-          <textarea
-            id="prompt-negative"
-            rows={3}
-            value={negativePrompt}
-            placeholder="blurry, low quality, distorted hands"
-            onChange={(event) => onNegativePromptChange(event.target.value)}
-          />
+          <div id="prompt-negative">
+            <PromptTextarea
+              value={negativePrompt}
+              onChange={(event) => onNegativePromptChange(event.target.value)}
+              showSyntaxHighlighting={false}
+              attentionSyntax="none"
+              minHeightPx={64}
+              defaultHeightPx={72}
+              resizeHandleAriaLabel="Resize the negative prompt editor"
+            />
+          </div>
           <label className="checkbox">
             <input
               type="checkbox"

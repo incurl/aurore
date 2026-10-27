@@ -8,6 +8,8 @@
 import { useMemo } from 'react';
 
 import type { Job } from '../../invoke-adapter/types';
+import { QueueStatusDot } from '../../wrapped-invoke-ui/features/queue/ui/QueueStatusDot';
+import type { QueueItemStatus } from '../../wrapped-invoke-ui/features/queue/core/types';
 
 interface JobQueueProps {
   jobs: Job[];
@@ -15,6 +17,20 @@ interface JobQueueProps {
   onRetry: (jobId: string) => void;
   onSelect: (jobId: string) => void;
 }
+
+/**
+ * Maps Aurore's job status onto InvokeAI's queue status.
+ *
+ * The vendored status dot understands the InvokeAI vocabulary, so the
+ * two are bridged here rather than duplicating the component.
+ */
+const QUEUE_STATUS: Record<Job['status'], QueueItemStatus> = {
+  pending: 'pending',
+  running: 'in_progress',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'canceled',
+};
 
 /**
  * Formats the elapsed time since a job was created.
@@ -61,7 +77,7 @@ export function JobQueue({ jobs, onCancel, onRetry, onSelect }: JobQueueProps) {
             {jobs.map((job) => (
               <article key={job.id} className="job-item">
                 <div className="job-item-top">
-                  <span className={`status-dot status-${job.status}`} aria-hidden="true" />
+                  <QueueStatusDot status={QUEUE_STATUS[job.status]} boxSize="2" />
                   <span className="status-label">{job.status}</span>
                   <span className="grow" />
                   <span className="text-dim mono">{elapsed(job.created)}</span>
