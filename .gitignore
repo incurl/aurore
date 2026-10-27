@@ -13,3 +13,4 @@ build/android/gen/
 pb_data/
 frontend/bindings/
 .task/
+frontend/bindings/
