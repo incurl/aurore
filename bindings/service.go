@@ -200,8 +200,12 @@ func (s *AppService) SaveUI(ui pocketbase.UI) error {
 // An empty apiKey leaves the stored key untouched, so the UI can save
 // other settings without re-entering the secret.
 func (s *AppService) SaveCredentials(apiKey string, baseURL string, model string) error {
-	if apiKey != "" {
-		if err := s.settings.SetAPIKey(apiKey); err != nil {
+	// The key is normalised here as well as in the client, so that the
+	// stored value is clean. A key that is only whitespace or quotes
+	// counts as "no key given" rather than overwriting a working one
+	// with an empty string.
+	if key := minimax.SanitizeAPIKey(apiKey); key != "" {
+		if err := s.settings.SetAPIKey(key); err != nil {
 			return err
 		}
 	}

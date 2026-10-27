@@ -40,7 +40,11 @@ type ClientOption func(*Client)
 
 // WithBaseURL overrides the API host. Used in tests.
 func WithBaseURL(baseURL string) ClientOption {
-	return func(c *Client) { c.baseURL = strings.TrimRight(baseURL, "/") }
+	return func(c *Client) {
+		// A pasted host carries the same stray whitespace as a pasted
+		// key, and a trailing slash would double up with the path.
+		c.baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	}
 }
 
 // WithHTTPClient overrides the underlying HTTP client.
@@ -65,11 +69,13 @@ func WithMaxConcurrent(n int) ClientOption {
 
 // NewClient creates a MiniMax API client.
 //
-// apiKey is the MiniMax API key sent as a bearer token.
+// apiKey is the MiniMax API key sent as a bearer token. It is normalised
+// first, so a key copied with surrounding whitespace, quotes or the whole
+// "Bearer ..." header still authenticates.
 func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
 		baseURL:    DefaultBaseURL,
-		apiKey:     apiKey,
+		apiKey:     SanitizeAPIKey(apiKey),
 		httpClient: &http.Client{Timeout: DefaultTimeout},
 		limiter:    NewDefaultRateLimiter(),
 		sem:        make(chan struct{}, DefaultMaxConcurrent),

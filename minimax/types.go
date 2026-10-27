@@ -290,9 +290,13 @@ func (e *Error) HumanMessage() string {
 	case StatusRateLimited:
 		return "Rate limited by MiniMax (10 requests per minute). Please wait a moment and retry."
 	case StatusAuthFailed:
-		return "MiniMax rejected the API key. Check the credentials in Settings."
+		// 1004 is the login failure. Once whitespace and quotes are
+		// stripped, the remaining causes are a key from the wrong place
+		// or a revoked one, so the message names the mix-up that is
+		// easiest to make: the GroupId is not the secret key.
+		return "MiniMax rejected the API key (1004). Settings must hold the API secret key itself, not the GroupId, and the key must still be active."
 	case StatusInvalidAPIKey:
-		return "The MiniMax API key is invalid. Check the credentials in Settings."
+		return "The MiniMax API key is invalid (2049). Check the credentials in Settings."
 	case StatusInsufficientBalance:
 		return "The MiniMax account has insufficient balance. Top up the account and retry."
 	case StatusSensitiveContent:
