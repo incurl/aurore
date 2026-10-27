@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -72,9 +74,45 @@ func TestWithBaseURLTrimsWhitespace(t *testing.T) {
 	}
 }
 
-// TestGenerateSendsACleanAuthorizationHeader verifies that the same key
-// pasted in the usual broken ways still produces the header MiniMax
-// expects on the wire.
+// TestFingerprintAPIKey verifies that the logged fingerprint describes
+// the key without revealing it.
+func TestFingerprintAPIKey(t *testing.T) {
+	const key = "eyJhbGciOiJSUzI1NiJ9.abc123"
+
+	got := FingerprintAPIKey(key)
+	wantPrefix := fmt.Sprintf("len=%d sha256=", len(key))
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Errorf("fingerprint = %q, want it to start with %q", got, wantPrefix)
+	}
+	if strings.Contains(got, key) {
+		t.Errorf("fingerprint %q leaks the key", got)
+	}
+
+	// The same key gives the same fingerprint, a different one differs.
+	if FingerprintAPIKey(key) != got {
+		t.Error("the fingerprint is not stable")
+	}
+	if FingerprintAPIKey(key+"x") == got {
+		t.Error("a different key produced the same fingerprint")
+	}
+
+	// A pasted key fingerprints as the clean one.
+	if FingerprintAPIKey(`  "Bearer `+key+`"  `) != got {
+		t.Error("a pasted key did not fingerprint as the clean one")
+	}
+
+	// An empty key is called out.
+	if FingerprintAPIKey("   ") != "empty" {
+		t.Errorf("FingerprintAPIKey(\"   \") = %q, want %q", FingerprintAPIKey("   "), "empty")
+	}
+
+	// An all-digit value is flagged: it cannot be a secret key.
+	digits := FingerprintAPIKey("123456789012345678")
+	if !strings.Contains(digits, "GroupId") {
+		t.Errorf("fingerprint of an all-digit value = %q, want a GroupId warning", digits)
+	}
+}
+
 func TestGenerateSendsACleanAuthorizationHeader(t *testing.T) {
 	const key = "eyJhbGciOiJSUzI1NiJ9.abc123"
 	want := "Bearer " + key

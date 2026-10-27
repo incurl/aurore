@@ -91,6 +91,12 @@ func run() error {
 			if err != nil {
 				return nil, err
 			}
+			// Recorded so a rejection can be read against what was
+			// actually sent. The key is never logged, only its
+			// fingerprint.
+			consoleLog.Info("minimax", fmt.Sprintf(
+				"calling %s with a key of %s",
+				baseURL, minimax.FingerprintAPIKey(apiKey)))
 			return minimax.NewClient(apiKey, minimax.WithBaseURL(baseURL)), nil
 		}),
 	)

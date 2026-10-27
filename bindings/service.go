@@ -245,7 +245,11 @@ func (s *AppService) TestCredentials() error {
 	}
 
 	client := minimax.NewClient(apiKey, minimax.WithBaseURL(baseURL))
-	s.console.Info("settings", "testing the MiniMax connection")
+	// Recorded so a rejection can be read against what was actually
+	// sent. The key itself is never logged, only its fingerprint.
+	s.console.Info("settings", fmt.Sprintf(
+		"testing the MiniMax connection at %s with a key of %s",
+		baseURL, minimax.FingerprintAPIKey(apiKey)))
 
 	err = client.Ping(context.Background())
 	if err != nil {
@@ -258,6 +262,14 @@ func (s *AppService) TestCredentials() error {
 				apiErr.Raw)
 		} else if err != nil {
 			s.console.Error("settings", err.Error())
+		}
+
+		// The server's own wording is kept, with the guidance and the
+		// request described, so the message alone is enough to act on.
+		if errors.As(err, &apiErr) {
+			return fmt.Errorf("%s The request went to %s with a key of %s. MiniMax said: %s",
+				apiErr.HumanMessage(), baseURL,
+				minimax.FingerprintAPIKey(apiKey), apiErr.Message)
 		}
 		return err
 	}

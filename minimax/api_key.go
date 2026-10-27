@@ -1,6 +1,10 @@
 package minimax
 
-import "strings"
+import (
+	"crypto/sha256"
+	"fmt"
+	"strings"
+)
 
 // bearerScheme is the authentication scheme MiniMax expects in front of
 // the API key.
@@ -86,4 +90,33 @@ func trimWrapper(key string) string {
 		}
 	}
 	return key
+}
+
+// FingerprintAPIKey describes an API key without revealing it.
+//
+// A 1004 "login fail" says nothing about which key was sent, so the
+// console reports a fingerprint instead: the length, a short hash and,
+// when the value is all digits, a note that it cannot be a secret key.
+// That is enough to spot an empty, truncated or mistaken value without
+// writing the secret to the log.
+func FingerprintAPIKey(key string) string {
+	key = SanitizeAPIKey(key)
+	if key == "" {
+		return "empty"
+	}
+
+	allDigits := true
+	for _, r := range key {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+
+	sum := sha256.Sum256([]byte(key))
+	fingerprint := fmt.Sprintf("len=%d sha256=%x", len(key), sum[:4])
+	if allDigits {
+		fingerprint += ", all digits: this looks like a GroupId rather than a secret key"
+	}
+	return fingerprint
 }
