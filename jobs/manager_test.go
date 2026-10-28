@@ -79,6 +79,57 @@ func fakeMiniMax(t *testing.T, statusCode int, images int) *httptest.Server {
 	}))
 }
 
+// TestSubmitJobSucceedsWithTheDocumentedResponse verifies that a job
+// completes when MiniMax answers in the format its documentation shows.
+//
+// The published example returns the image counts as JSON strings, so the
+// response failed to decode and the job failed with "invalid parameters"
+// even though the API had generated the images.
+func TestSubmitJobSucceedsWithTheDocumentedResponse(t *testing.T) {
+	app := newTestApp(t)
+
+	encoded := base64.StdEncoding.EncodeToString(pngBytes(t, 0, 0, 0))
+	body := `{"id":"task-documented","data":{"image_base64":["` + encoded + `"]},` +
+		`"metadata":{"failed_count":"0","success_count":"1"},` +
+		`"base_resp":{"status_code":0,"status_msg":"success"}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt: "a red bicycle",
+		Params: Params{Model: "image-01", BatchSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	done := waitForStatus(t, manager, job.ID, aurorepb.StatusCompleted, aurorepb.StatusFailed)
+	if done.Status != aurorepb.StatusCompleted {
+		t.Fatalf("status = %q, want completed (error %d: %s)",
+			done.Status, done.ErrorCode, done.ErrorMessage)
+	}
+	if done.MiniMaxTaskID != "task-documented" {
+		t.Errorf("task id = %q, want task-documented", done.MiniMaxTaskID)
+	}
+	if len(done.ImageIDs) != 1 {
+		t.Errorf("image ids = %v, want one image", done.ImageIDs)
+	}
+}
+
 // waitForStatus polls until the job reaches one of the wanted statuses.
 func waitForStatus(t *testing.T, manager *Manager, jobID string, wanted ...string) Job {
 	t.Helper()
@@ -213,6 +264,188 @@ func TestSubmitJobFails(t *testing.T) {
 	}
 	if failed.ErrorMessage == "" {
 		t.Error("the error message must be set")
+	}
+}
+
+// TestSubmitJobRecordsAnUnreadableResponse verifies that a response
+// this client cannot read is recorded with the Aurore-side code, not
+// with the invalid parameters code.
+//
+// The code is negative, so it also has to survive the round trip
+// through the text field the job record stores it in.
+func TestSubmitJobRecordsAnUnreadableResponse(t *testing.T) {
+	app := newTestApp(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><body>gateway timeout</body></html>"))
+	}))
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt: "a red bicycle",
+		Params: Params{Model: "image-01", BatchSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	failed := waitForStatus(t, manager, job.ID, aurorepb.StatusFailed)
+	if failed.ErrorCode != minimax.StatusUnreadableResponse {
+		t.Errorf("error code = %d, want %d", failed.ErrorCode, minimax.StatusUnreadableResponse)
+	}
+	if failed.ErrorCode == minimax.StatusInvalidParams {
+		t.Error("an unreadable response must not be recorded as invalid params")
+	}
+	if !strings.Contains(failed.ErrorMessage, "could not be read") {
+		t.Errorf("error message %q does not explain the failure", failed.ErrorMessage)
+	}
+}
+
+// TestDeleteJobRemovesAFinishedJob verifies that a completed job can be
+// removed from the queue, together with the images it produced.
+func TestDeleteJobRemovesAFinishedJob(t *testing.T) {
+	app := newTestApp(t)
+	srv := fakeMiniMax(t, minimax.StatusOK, 2)
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt: "a red bicycle",
+		Params: Params{Model: "image-01", BatchSize: 2},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	done := waitForStatus(t, manager, job.ID, aurorepb.StatusCompleted)
+	if len(done.ImageIDs) != 2 {
+		t.Fatalf("image ids = %v, want two", done.ImageIDs)
+	}
+
+	if err := manager.DeleteJob(job.ID); err != nil {
+		t.Fatalf("DeleteJob: %v", err)
+	}
+
+	// The job must be gone.
+	if _, err := manager.GetJob(job.ID); err == nil {
+		t.Error("the job is still there after it was deleted")
+	}
+
+	// So must its images, or they would point at a job that is not
+	// there any more.
+	images, err := manager.ListImages(job.ID, 10)
+	if err != nil {
+		t.Fatalf("ListImages: %v", err)
+	}
+	if len(images) != 0 {
+		t.Errorf("images = %d, want none", len(images))
+	}
+}
+
+// TestDeleteJobRemovesAFailedJob verifies that a failed job can be
+// removed too.
+func TestDeleteJobRemovesAFailedJob(t *testing.T) {
+	app := newTestApp(t)
+	srv := fakeMiniMax(t, minimax.StatusInsufficientBalance, 0)
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt: "a red bicycle",
+		Params: Params{Model: "image-01", BatchSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForStatus(t, manager, job.ID, aurorepb.StatusFailed)
+
+	if err := manager.DeleteJob(job.ID); err != nil {
+		t.Fatalf("DeleteJob: %v", err)
+	}
+	if _, err := manager.GetJob(job.ID); err == nil {
+		t.Error("the job is still there after it was deleted")
+	}
+}
+
+// TestDeleteJobRefusesARunningJob verifies that a job that has not come
+// to rest cannot be deleted.
+//
+// It has to be cancelled first, so that it cannot write to the database
+// after it has been removed.
+func TestDeleteJobRefusesARunningJob(t *testing.T) {
+	app := newTestApp(t)
+	srv := fakeMiniMax(t, minimax.StatusOK, 1)
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt: "a red bicycle",
+		Params: Params{Model: "image-01", BatchSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// The job is pending or running at this point.
+	err = manager.DeleteJob(job.ID)
+	if err == nil {
+		t.Fatal("expected an error when deleting a job that has not finished")
+	}
+	if !strings.Contains(err.Error(), "cancel") {
+		t.Errorf("error %q does not say that the job has to be cancelled first", err)
+	}
+
+	// The job must still be there.
+	if _, err := manager.GetJob(job.ID); err != nil {
+		t.Errorf("the job was removed even though the delete failed: %v", err)
+	}
+}
+
+// TestDeleteUnknownJobFails verifies that deleting a job that is not
+// there reports an error.
+func TestDeleteUnknownJobFails(t *testing.T) {
+	app := newTestApp(t)
+	manager := NewManager(app)
+
+	if err := manager.DeleteJob("nosuchjob"); err == nil {
+		t.Fatal("expected an error when deleting a job that does not exist")
 	}
 }
 

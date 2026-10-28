@@ -16,6 +16,17 @@ interface JobQueueProps {
   onCancel: (jobId: string) => void;
   onRetry: (jobId: string) => void;
   onSelect: (jobId: string) => void;
+  onDelete: (jobId: string) => void;
+}
+
+/**
+ * Reports whether a job has come to rest and can be removed.
+ *
+ * A pending or running job has to be cancelled first, so it cannot
+ * write to the database after it has been removed.
+ */
+export function canDelete(status: Job['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 /**
@@ -54,7 +65,7 @@ function elapsed(created: string): string {
 /**
  * The job queue panel.
  */
-export function JobQueue({ jobs, onCancel, onRetry, onSelect }: JobQueueProps) {
+export function JobQueue({ jobs, onCancel, onRetry, onSelect, onDelete }: JobQueueProps) {
   const summary = useMemo(() => {
     const running = jobs.filter((job) => job.status === 'running').length;
     const pending = jobs.filter((job) => job.status === 'pending').length;
@@ -119,6 +130,17 @@ export function JobQueue({ jobs, onCancel, onRetry, onSelect }: JobQueueProps) {
                       onClick={() => onSelect(job.id)}
                     >
                       {job.image_ids.length} image{job.image_ids.length === 1 ? '' : 's'}
+                    </button>
+                  )}
+                  {canDelete(job.status) && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      onClick={() => onDelete(job.id)}
+                      aria-label="Remove this job from the queue"
+                      title="Remove this job from the queue"
+                    >
+                      Remove
                     </button>
                   )}
                 </div>

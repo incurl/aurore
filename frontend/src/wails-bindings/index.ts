@@ -87,6 +87,15 @@ export function cancelJob(jobId: string): Promise<void> {
 }
 
 /**
+ * Removes a finished job from the queue.
+ *
+ * The images the job produced are removed with it.
+ */
+export function deleteJob(jobId: string): Promise<void> {
+  return AppServiceBindings.DeleteJob(jobId) as Promise<void>;
+}
+
+/**
  * Re-runs a job with the same parameters.
  */
 export function retryJob(jobId: string): Promise<Job> {

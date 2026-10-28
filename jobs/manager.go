@@ -222,6 +222,61 @@ func (m *Manager) Cancel(jobID string) error {
 	return nil
 }
 
+// DeleteJob removes a finished job from the queue.
+//
+// Only a job that has come to rest can be deleted: a pending or running
+// job has to be cancelled first, so that it cannot write to the
+// database after it has been removed.
+//
+// The images the job produced are removed with it. The generated_images
+// records point at the job, but the relation does not cascade, so
+// leaving them behind would orphan them.
+func (m *Manager) DeleteJob(jobID string) error {
+	record, err := m.app.FindRecordById("image_jobs", jobID)
+	if err != nil {
+		return fmt.Errorf("find job %q: %w", jobID, err)
+	}
+
+	switch record.GetString("status") {
+	case "pending", "running":
+		return fmt.Errorf("job %q is still %s and cannot be deleted; cancel it first",
+			jobID, record.GetString("status"))
+	}
+
+	// Remove the images the job produced, so that no record is left
+	// pointing at a job that no longer exists.
+	if err := m.deleteJobImages(jobID); err != nil {
+		return err
+	}
+
+	if err := m.app.Delete(record); err != nil {
+		return fmt.Errorf("delete job %q: %w", jobID, err)
+	}
+	return nil
+}
+
+// deleteJobImages removes the generated images belonging to a job.
+func (m *Manager) deleteJobImages(jobID string) error {
+	images, err := m.app.FindRecordsByFilter(
+		"generated_images",
+		"job = {:job}",
+		"",
+		0,
+		0,
+		dbx.Params{"job": jobID},
+	)
+	if err != nil {
+		return fmt.Errorf("find images of job %q: %w", jobID, err)
+	}
+
+	for _, image := range images {
+		if err := m.app.Delete(image); err != nil {
+			return fmt.Errorf("delete image %q of job %q: %w", image.Id, jobID, err)
+		}
+	}
+	return nil
+}
+
 // run executes a job.
 func (m *Manager) run(jobID string, req Request) {
 	m.queue <- struct{}{}

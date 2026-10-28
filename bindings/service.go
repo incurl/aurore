@@ -288,6 +288,13 @@ func (s *AppService) CancelJob(jobID string) error {
 	return s.jobs.Cancel(jobID)
 }
 
+// DeleteJob removes a finished job from the queue.
+//
+// The images the job produced are removed with it.
+func (s *AppService) DeleteJob(jobID string) error {
+	return s.jobs.DeleteJob(jobID)
+}
+
 // RetryJob re-runs a job with the same parameters.
 func (s *AppService) RetryJob(jobID string) (jobs.Job, error) {
 	job, err := s.jobs.GetJob(jobID)

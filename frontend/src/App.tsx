@@ -300,6 +300,27 @@ function App() {
     },
   });
 
+  const deleteJobMutation = useMutation({
+    mutationFn: (jobId: string) => api.deleteJob(jobId),
+    onSuccess: (_result, jobId) => {
+      // The job is gone, and so are the images it produced.
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      void queryClient.invalidateQueries({ queryKey: ['images'] });
+
+      // The preview must not keep showing an image that no longer
+      // exists. The selection holds an image id, so the images of the
+      // removed job are the ones to drop.
+      const removed = jobs.find((job) => job.id === jobId)?.image_ids ?? [];
+      if (removed.length > 0) {
+        setSelectedImageId((current) => (removed.includes(current) ? '' : current));
+        setCompareImageId((current) => (removed.includes(current) ? '' : current));
+      }
+    },
+    onError: (error: unknown) => {
+      notify(error instanceof Error ? error.message : String(error), 'error');
+    },
+  });
+
   const retryMutation = useMutation({
     mutationFn: (jobId: string) => api.retryJob(jobId),
     onSuccess: () => {
@@ -724,6 +745,7 @@ function App() {
               setSelectedImageId(job.image_ids[0]);
             }
           }}
+          onDelete={(jobId) => deleteJobMutation.mutate(jobId)}
         />
 
         <Gallery
