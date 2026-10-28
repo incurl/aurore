@@ -148,7 +148,7 @@ func readFileBytes(app core.App, record *core.Record) ([]byte, error) {
 	}
 	defer fsys.Close()
 
-	reader, err := fsys.GetFile(record.BaseFilesPath() + "/" + filename)
+	reader, err := fsys.GetReader(record.BaseFilesPath() + "/" + filename)
 	if err != nil {
 		return nil, fmt.Errorf("open file %q: %w", filename, err)
 	}
