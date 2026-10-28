@@ -133,8 +133,8 @@ func run() error {
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Aurore",
-		Width:  1440,
-		Height: 900,
+		Width:  2880,
+		Height: 1800,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
