@@ -39,6 +39,7 @@ import { applyZoom } from './ui/zoom';
 import { AssetPanel } from './features/generation/AssetPanel';
 import { ParameterPanel } from './features/generation/ParameterPanel';
 import { PromptEditor } from './features/generation/PromptEditor';
+import { dismissOnEscape } from './features/generation/preview';
 import { Gallery } from './features/gallery/Gallery';
 import { MaskCanvas } from './features/mask/MaskCanvas';
 import { PresetPanel } from './features/presets/PresetPanel';
@@ -185,6 +186,38 @@ function App() {
       off();
     };
   }, [queryClient]);
+
+  // Escape dismisses the preview, and drops the comparison first when
+  // there is one. The settings dialog owns the key while it is open, so
+  // that closing the preview cannot happen behind it.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || settingsOpen) {
+        return;
+      }
+      const action = dismissOnEscape(
+        selectedImageId !== '',
+        compareImageId !== '',
+        event.target,
+      );
+      if (!action.clearSelection && !action.clearComparison) {
+        return;
+      }
+      event.preventDefault();
+      if (action.clearComparison) {
+        setCompareImageId('');
+      }
+      if (action.clearSelection) {
+        setSelectedImageId('');
+        setCompareImageId('');
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [settingsOpen, selectedImageId, compareImageId]);
 
   // --- Debug console -------------------------------------------------
 
@@ -557,9 +590,25 @@ function App() {
         <section className="panel">
           <div className="panel-header">
             <span>Preview</span>
-            <span className="text-dim">
-              {selectedImage ? `${selectedImage.width}×${selectedImage.height}` : ''}
-            </span>
+            <div className="panel-header-actions">
+              <span className="text-dim">
+                {selectedImage ? `${selectedImage.width}×${selectedImage.height}` : ''}
+              </span>
+              {selectedImage && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-icon"
+                  onClick={() => {
+                    setSelectedImageId('');
+                    setCompareImageId('');
+                  }}
+                  aria-label="Close the preview"
+                  title="Close the preview (Escape)"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
           <div className="panel-body">
             {selectedImage ? (
@@ -597,7 +646,18 @@ function App() {
                       <img src={selectedImage.url} alt="Selected" />
                     </div>
                     <div className="compare-cell">
-                      <span className="compare-label">Comparison</span>
+                      <div className="compare-label-row">
+                        <span className="compare-label">Comparison</span>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-icon"
+                          onClick={() => setCompareImageId('')}
+                          aria-label="Clear the comparison"
+                          title="Clear the comparison (Escape)"
+                        >
+                          ✕
+                        </button>
+                      </div>
                       <img src={compareImage.url} alt="Comparison" />
                     </div>
                   </div>
