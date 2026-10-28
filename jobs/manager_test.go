@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -374,6 +375,91 @@ func TestUploadAssetRejectsUnknownKind(t *testing.T) {
 
 	if _, err := manager.UploadAsset("bogus", []byte{1}, "x.png"); err == nil {
 		t.Fatal("expected an error for an unknown asset kind")
+	}
+}
+
+// TestGeneratedImageIsStoredWithItsRealFormat verifies that a stored
+// image is named after the format its bytes really are.
+//
+// MiniMax returns JPEG images. Naming them ".png" and declaring them
+// image/png produced files that tools misidentify, and the export
+// downloaded them under a ".png" name too.
+func TestGeneratedImageIsStoredWithItsRealFormat(t *testing.T) {
+	app := newTestApp(t)
+
+	// A stub that answers with a real JPEG, which is what MiniMax sends.
+	encoded := base64.StdEncoding.EncodeToString(jpegBytes(t))
+	body := `{"id":"task-jpeg","data":{"image_base64":["` + encoded + `"]},` +
+		`"metadata":{"failed_count":"0","success_count":"1"},` +
+		`"base_resp":{"status_code":0,"status_msg":"success"}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt: "a red bicycle",
+		Params: Params{Model: "image-01", BatchSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForStatus(t, manager, job.ID, aurorepb.StatusCompleted)
+
+	images, err := manager.ListImages(job.ID, 10)
+	if err != nil {
+		t.Fatalf("ListImages: %v", err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("images = %d, want 1", len(images))
+	}
+
+	// The stored file must carry the real extension.
+	record, err := app.FindRecordById("generated_images", images[0].ID)
+	if err != nil {
+		t.Fatalf("find image: %v", err)
+	}
+	stored := record.GetString("file")
+	if !strings.HasSuffix(stored, ".jpg") {
+		t.Errorf("stored file %q does not end in .jpg", stored)
+	}
+	if got := record.GetString("mime"); got != "image/jpeg" {
+		t.Errorf("mime = %q, want image/jpeg", got)
+	}
+	if got := images[0].Mime; got != "image/jpeg" {
+		t.Errorf("image mime = %q, want image/jpeg", got)
+	}
+
+	// The export must report the real format as well.
+	exported, err := manager.ExportImage(images[0].ID)
+	if err != nil {
+		t.Fatalf("ExportImage: %v", err)
+	}
+	if exported.Extension != "jpg" {
+		t.Errorf("export extension = %q, want jpg", exported.Extension)
+	}
+	if exported.Mime != "image/jpeg" {
+		t.Errorf("export mime = %q, want image/jpeg", exported.Mime)
+	}
+	if len(exported.Bytes) == 0 {
+		t.Error("the export returned no bytes")
+	}
+
+	// The bytes must be the JPEG that was stored, not a re-encoded PNG.
+	if !bytes.HasPrefix(exported.Bytes, []byte{0xFF, 0xD8, 0xFF}) {
+		t.Error("the exported bytes are not a JPEG")
 	}
 }
 

@@ -114,6 +114,11 @@ integer reading must not be reintroduced. A body this client cannot read
 is reported with Aurore's own code `-1`, never with MiniMax's `2013`,
 which means the request parameters were rejected.
 
+MiniMax returns **JPEG** images. The format is detected from the image
+bytes when an image is stored, so the stored file carries the extension
+it really has (`image_1_xxx.jpg`, not `.png`), and the export button
+names the downloaded file after that format too.
+
 ## Data
 
 Everything lives in `pb_data/` next to the executable:

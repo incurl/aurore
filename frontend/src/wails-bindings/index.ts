@@ -234,11 +234,35 @@ export async function getCapabilities(model = ''): Promise<Capabilities> {
 }
 
 /**
- * Returns the bytes of a generated image so it can be saved to disk.
+ * A generated image prepared for download.
+ *
+ * The format is carried alongside the bytes, so that the downloaded
+ * file is named and typed after the format the image really is.
  */
-export async function exportImage(imageId: string): Promise<Uint8Array> {
-  const encoded = (await AppServiceBindings.ExportImage(imageId)) as unknown as string;
-  return base64ToBytes(encoded);
+export type ExportedImage = {
+  bytes: Uint8Array;
+  extension: string;
+  mime: string;
+};
+
+/**
+ * Returns the bytes of a generated image, with the format they really
+ * are, so it can be saved to disk.
+ */
+export async function exportImage(imageId: string): Promise<ExportedImage> {
+  const result = (await AppServiceBindings.ExportImage(imageId)) as unknown as
+    | (JobsModels.ExportedImage & { bytes: string | null })
+    | null;
+
+  if (!result) {
+    throw new Error('The image could not be exported.');
+  }
+
+  return {
+    bytes: base64ToBytes(result.bytes ?? ''),
+    extension: result.extension,
+    mime: result.mime,
+  };
 }
 
 /**

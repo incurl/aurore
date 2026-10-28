@@ -94,6 +94,21 @@ type Job struct {
 	Updated string `json:"updated"`
 }
 
+// ExportedImage is a generated image prepared for download.
+//
+// It carries the format of the bytes, so that the saved file is named
+// and typed after the format the image really is, instead of always
+// being called ".png".
+type ExportedImage struct {
+	// Bytes is the image data.
+	Bytes []byte `json:"bytes"`
+	// Extension is the file extension, without the dot, for example
+	// "jpg" or "png".
+	Extension string `json:"extension"`
+	// Mime is the MIME type, for example "image/jpeg".
+	Mime string `json:"mime"`
+}
+
 // Image is the frontend-facing view of a generated image.
 type Image struct {
 	// ID is the PocketBase record id.
@@ -109,6 +124,9 @@ type Image struct {
 	Height int `json:"height"`
 	// Bytes is the file size.
 	Bytes int `json:"bytes"`
+	// Mime is the MIME type of the stored image, detected from its
+	// bytes when the image was saved.
+	Mime string `json:"mime"`
 	// Seed is the seed used for this image.
 	Seed int64 `json:"seed"`
 	// StyleTag is the style preset applied.

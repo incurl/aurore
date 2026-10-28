@@ -348,12 +348,17 @@ function App() {
 
   const exportMutation = useMutation({
     mutationFn: async (imageId: string) => {
-      const bytes = await api.exportImage(imageId);
-      const blob = new Blob([bytes as BlobPart], { type: 'image/png' });
+      const exported = await api.exportImage(imageId);
+      // The format comes from the backend, which reads it from the
+      // image bytes, so the saved file is named and typed after the
+      // format the image really is.
+      const blob = new Blob([exported.bytes as BlobPart], {
+        type: exported.mime || 'application/octet-stream',
+      });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `aurore-${imageId}.png`;
+      anchor.download = `aurore-${imageId}.${exported.extension || 'png'}`;
       anchor.click();
       URL.revokeObjectURL(url);
     },

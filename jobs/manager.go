@@ -355,8 +355,12 @@ func (m *Manager) saveGeneratedImage(job *core.Record, req Request, data []byte,
 	record.Set("width", width)
 	record.Set("height", height)
 
-	name := fmt.Sprintf("image-%d.png", index+1)
+	// The file is named after the format the bytes really are, so that
+	// the stored file is not a JPEG with a PNG name.
+	format := detectImageFormat(data)
+	name := fmt.Sprintf("image-%d.%s", index+1, format.Extension)
 	record.Set("file_name", name)
+	record.Set("mime", format.Mime)
 
 	file, err := filesystem.NewFileFromBytes(data, name)
 	if err != nil {
@@ -496,12 +500,10 @@ func (m *Manager) assetDataURL(assetID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	mime := "image/png"
-	if record, err := m.app.FindRecordById("uploaded_assets", assetID); err == nil {
-		if stored := record.GetString("mime"); stored != "" {
-			mime = stored
-		}
-	}
+	// The type is read from the bytes rather than from the file name the
+	// upload was given, so that MiniMax is sent a data URL that really
+	// describes the image.
+	_, mime := ImageFormat(data)
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 

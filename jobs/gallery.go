@@ -101,6 +101,7 @@ func (m *Manager) toImage(record *core.Record) Image {
 		StyleTag: record.GetString("style_tag"),
 		Prompt:   record.GetString("prompt_snapshot"),
 		Created:  record.GetString("created"),
+		Mime:     record.GetString("mime"),
 	}
 
 	// The file field holds the stored filename, which includes the
@@ -132,12 +133,34 @@ func (m *Manager) DeleteImage(imageID string) error {
 	return nil
 }
 
-// ExportImageBytes returns the raw bytes of a generated image so the
-// frontend can save it to disk.
-func (m *Manager) ExportImageBytes(imageID string) ([]byte, error) {
+// ExportImage returns the bytes of a generated image together with the
+// file extension and MIME type they really are.
+//
+// It is what the download button uses, so that the saved file is named
+// and typed correctly instead of always being called ".png".
+//
+// The stored "mime" field is used when it is there, and the bytes are
+// inspected when it is not, which is the case for images saved before
+// the format was recorded.
+func (m *Manager) ExportImage(imageID string) (*ExportedImage, error) {
 	record, err := m.app.FindRecordById("generated_images", imageID)
 	if err != nil {
 		return nil, fmt.Errorf("find image %q: %w", imageID, err)
 	}
-	return readFileBytes(m.app, record)
+
+	data, err := readFileBytes(m.app, record)
+	if err != nil {
+		return nil, err
+	}
+
+	extension, mime := ImageFormat(data)
+	if stored := record.GetString("mime"); stored != "" {
+		mime = stored
+	}
+
+	return &ExportedImage{
+		Bytes:     data,
+		Extension: extension,
+		Mime:      mime,
+	}, nil
 }

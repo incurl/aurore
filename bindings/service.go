@@ -355,6 +355,10 @@ func (s *AppService) DeletePreset(presetID string) error {
 
 // ExportImage returns the bytes of a generated image so the frontend can
 // save it to disk.
-func (s *AppService) ExportImage(imageID string) ([]byte, error) {
-	return s.jobs.ExportImageBytes(imageID)
+//
+// The response carries the format of the bytes, so that the downloaded
+// file is named and typed after the format the image really is, instead
+// of always being called ".png".
+func (s *AppService) ExportImage(imageID string) (*jobs.ExportedImage, error) {
+	return s.jobs.ExportImage(imageID)
 }
