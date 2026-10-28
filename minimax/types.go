@@ -11,6 +11,8 @@ package minimax
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // Model identifies a MiniMax image model.
@@ -176,6 +178,33 @@ type BaseResp struct {
 	StatusMsg string `json:"status_msg"`
 }
 
+// UnmarshalJSON accepts the status code as a JSON number or as a
+// numeric string.
+//
+// The published schema declares status_code as an integer, but the live
+// API is not always consistent with it. Because a single mismatched
+// field aborts the whole decode, a stringified status code would turn
+// every error path into an "unreadable response", hiding the real
+// cause of the failure.
+func (b *BaseResp) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		StatusCode json.RawMessage `json:"status_code"`
+		StatusMsg  string          `json:"status_msg"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	code, err := parseCount(raw.StatusCode)
+	if err != nil {
+		return fmt.Errorf("minimax: base_resp.status_code: %w", err)
+	}
+
+	b.StatusCode = code
+	b.StatusMsg = raw.StatusMsg
+	return nil
+}
+
 // DataObject carries the generated images.
 type DataObject struct {
 	// ImageURLs is populated when ResponseFormat is "url".
@@ -190,6 +219,75 @@ type Metadata struct {
 	SuccessCount int `json:"success_count"`
 	// FailedCount is the number of images rejected by content safety.
 	FailedCount int `json:"failed_count"`
+}
+
+// UnmarshalJSON accepts the counts as JSON numbers or as numeric
+// strings.
+//
+// MiniMax's live API returns "success_count":"3" and "failed_count":"0"
+// as strings, even though the published schema declares them as
+// integers. encoding/json refuses to put a string into an int field, and
+// because one bad field aborts the whole decode, that mismatch used to
+// fail the entire response: a successful generation was reported as
+// "invalid parameters" and the images it had already produced were
+// thrown away.
+func (m *Metadata) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		SuccessCount json.RawMessage `json:"success_count"`
+		FailedCount  json.RawMessage `json:"failed_count"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	success, err := parseCount(raw.SuccessCount)
+	if err != nil {
+		return fmt.Errorf("minimax: metadata.success_count: %w", err)
+	}
+	failed, err := parseCount(raw.FailedCount)
+	if err != nil {
+		return fmt.Errorf("minimax: metadata.failed_count: %w", err)
+	}
+
+	m.SuccessCount = success
+	m.FailedCount = failed
+	return nil
+}
+
+// parseCount reads a count that may arrive as a JSON number or as a
+// numeric string.
+//
+// A missing, null or empty value counts as zero, because the API omits
+// the fields when there is nothing to report.
+func parseCount(raw json.RawMessage) (int, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return 0, nil
+	}
+
+	// A quoted number, as MiniMax sends the counts.
+	if strings.HasPrefix(trimmed, `"`) {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return 0, fmt.Errorf("%s is not a number", trimmed)
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return 0, nil
+		}
+		value, err := strconv.Atoi(text)
+		if err != nil {
+			return 0, fmt.Errorf("%q is not a number", text)
+		}
+		return value, nil
+	}
+
+	// A bare number.
+	var value int
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, fmt.Errorf("%s is not a number", trimmed)
+	}
+	return value, nil
 }
 
 // ImageResponse is the response body of POST /v1/image_generation.
@@ -224,6 +322,16 @@ const (
 	// StatusInvalidAPIKey indicates the API key is not valid.
 	StatusInvalidAPIKey = 2049
 )
+
+// StatusUnreadableResponse is an Aurore-side code, not one of the codes
+// MiniMax documents. It means the API replied, but the body could not be
+// interpreted.
+//
+// It is deliberately not StatusInvalidParams: 2013 means MiniMax
+// rejected the request parameters, and reporting it for a body this
+// client could not parse sends the reader in the wrong direction, since
+// the parameters may be perfectly fine.
+const StatusUnreadableResponse = -1
 
 // Error is a typed MiniMax API error.
 type Error struct {
@@ -280,6 +388,12 @@ func (e *Error) IsInvalidParams() bool {
 	return e.StatusCode == StatusInvalidParams
 }
 
+// IsUnreadableResponse reports whether the response body could not be
+// interpreted.
+func (e *Error) IsUnreadableResponse() bool {
+	return e.StatusCode == StatusUnreadableResponse
+}
+
 // HumanMessage returns a user-facing explanation of the error, suitable
 // for display on a failed job record.
 func (e *Error) HumanMessage() string {
@@ -303,6 +417,8 @@ func (e *Error) HumanMessage() string {
 		return "MiniMax blocked the prompt for sensitive content. Revise the prompt and retry."
 	case StatusInvalidParams:
 		return "MiniMax rejected the request parameters. Adjust the generation settings and retry."
+	case StatusUnreadableResponse:
+		return "MiniMax replied, but the response could not be read. This is not a parameter problem: the raw body is in the debug console, where it can be copied into a bug report."
 	}
 	if e.Message != "" {
 		return e.Message

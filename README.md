@@ -106,6 +106,14 @@ endpoint. The job queue exists to serialise requests against the
 documented **10 requests per minute** limit, to allow cancellation, and
 to give the UI a durable history.
 
+One quirk is worth recording, because the published schema and the live
+API disagree: `metadata.success_count` and `metadata.failed_count` are
+documented as integers, but MiniMax sends them as JSON **strings**
+(`"success_count": "3"`). The client accepts both forms, so the strict
+integer reading must not be reintroduced. A body this client cannot read
+is reported with Aurore's own code `-1`, never with MiniMax's `2013`,
+which means the request parameters were rejected.
+
 ## Data
 
 Everything lives in `pb_data/` next to the executable:

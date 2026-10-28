@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // newTestClient builds a client pointed at a test server with the rate
@@ -234,6 +235,184 @@ func TestErrorHumanMessageIsUserFacing(t *testing.T) {
 	e := &Error{StatusCode: StatusRateLimited, Message: "raw"}
 	if !strings.Contains(e.HumanMessage(), "Rate limited") {
 		t.Errorf("HumanMessage = %q", e.HumanMessage())
+	}
+}
+
+// TestGenerateAcceptsTheDocumentedResponse verifies that the response
+// MiniMax documents is decoded.
+//
+// The published example returns the image counts as JSON strings, so a
+// strict int field failed the whole decode and the generated images were
+// thrown away. This test pins the documented body down.
+func TestGenerateAcceptsTheDocumentedResponse(t *testing.T) {
+	payload := base64.StdEncoding.EncodeToString([]byte("fake-jpeg-bytes"))
+
+	// The example body from the MiniMax API reference, with the image
+	// URLs replaced by the base64 payload the request asked for.
+	body := `{
+		"id": "03ff3cd0820949eb8a410056b5f21d38",
+		"data": {"image_base64": ["` + payload + `"]},
+		"metadata": {"failed_count": "0", "success_count": "1"},
+		"base_resp": {"status_code": 0, "status_msg": "success"}
+	}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "secret-key")
+	res, err := client.Generate(context.Background(), ImageRequest{
+		Model: ModelImage01, Prompt: "a cat",
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if res.TaskID != "03ff3cd0820949eb8a410056b5f21d38" {
+		t.Errorf("task id = %q", res.TaskID)
+	}
+	if len(res.Images) != 1 {
+		t.Fatalf("images = %d, want 1", len(res.Images))
+	}
+	if string(res.Images[0]) != "fake-jpeg-bytes" {
+		t.Errorf("image = %q", res.Images[0])
+	}
+	if res.SuccessCount != 1 {
+		t.Errorf("success count = %d, want 1", res.SuccessCount)
+	}
+	if res.FailedCount != 0 {
+		t.Errorf("failed count = %d, want 0", res.FailedCount)
+	}
+}
+
+// TestGenerateAcceptsStringCounts verifies that the counts are read from
+// the string form the API sends.
+func TestGenerateAcceptsStringCounts(t *testing.T) {
+	payload := base64.StdEncoding.EncodeToString([]byte("fake-jpeg-bytes"))
+	body := `{"data":{"image_base64":["` + payload + `"]},` +
+		`"metadata":{"failed_count":"2","success_count":"5"},` +
+		`"base_resp":{"status_code":0,"status_msg":"success"}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "key")
+	res, err := client.Generate(context.Background(), ImageRequest{Model: ModelImage01, Prompt: "x"})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if res.SuccessCount != 5 {
+		t.Errorf("success count = %d, want 5", res.SuccessCount)
+	}
+	if res.FailedCount != 2 {
+		t.Errorf("failed count = %d, want 2", res.FailedCount)
+	}
+}
+
+// TestGenerateAcceptsStringStatusCode verifies that an error reported
+// with a stringified status code is still recognised as that error.
+func TestGenerateAcceptsStringStatusCode(t *testing.T) {
+	body := `{"base_resp":{"status_code":"1008","status_msg":"insufficient balance"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "key")
+	_, err := client.Generate(context.Background(), ImageRequest{Model: ModelImage01, Prompt: "x"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	apiErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *minimax.Error", err)
+	}
+	if !apiErr.IsInsufficientBalance() {
+		t.Errorf("status = %d, want %d", apiErr.StatusCode, StatusInsufficientBalance)
+	}
+}
+
+// TestGenerateDecodeFailureIsNotInvalidParams verifies that a body this
+// client cannot read is not reported as an invalid parameter error.
+//
+// MiniMax did not reject the parameters in that case, so the message
+// must not send the reader off to adjust the generation settings.
+func TestGenerateDecodeFailureIsNotInvalidParams(t *testing.T) {
+	body := "<html><head><title>502 Bad Gateway</title></head></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "key")
+	_, err := client.Generate(context.Background(), ImageRequest{Model: ModelImage01, Prompt: "x"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	apiErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *minimax.Error", err)
+	}
+	if apiErr.IsInvalidParams() {
+		t.Error("an unreadable response must not report itself as invalid params")
+	}
+	if !apiErr.IsUnreadableResponse() {
+		t.Errorf("status = %d, want %d", apiErr.StatusCode, StatusUnreadableResponse)
+	}
+	if apiErr.Raw != body {
+		t.Errorf("raw body = %q, want %q", apiErr.Raw, body)
+	}
+	if !strings.Contains(apiErr.Message, "502 Bad Gateway") {
+		t.Errorf("message %q does not quote the body", apiErr.Message)
+	}
+	if !strings.Contains(apiErr.HumanMessage(), "debug console") {
+		t.Errorf("human message %q does not point at the raw body", apiErr.HumanMessage())
+	}
+}
+
+// TestPingDecodeFailureIsNotInvalidParams verifies the same for the
+// connection test.
+func TestPingDecodeFailureIsNotInvalidParams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json at all"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv, "key")
+	err := client.Ping(context.Background())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	apiErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("error type = %T, want *minimax.Error", err)
+	}
+	if apiErr.IsInvalidParams() {
+		t.Error("an unreadable response must not report itself as invalid params")
+	}
+	if !apiErr.IsUnreadableResponse() {
+		t.Errorf("status = %d, want %d", apiErr.StatusCode, StatusUnreadableResponse)
+	}
+}
+
+// TestExcerptCutsOnARuneBoundary verifies that a shortened body never
+// ends in half of a multi-byte character.
+func TestExcerptCutsOnARuneBoundary(t *testing.T) {
+	// A body of multi-byte characters, cut in the middle of one.
+	body := strings.Repeat("日", 100)
+
+	got := excerpt(body, 5)
+	if !utf8.ValidString(got) {
+		t.Errorf("excerpt produced invalid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("excerpt %q does not end with the ellipsis", got)
 	}
 }
 

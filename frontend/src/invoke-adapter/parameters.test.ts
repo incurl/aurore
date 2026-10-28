@@ -281,4 +281,9 @@ describe('describeErrorCode', () => {
   it('returns an empty string for an unknown code', () => {
     expect(describeErrorCode(0)).toBe('');
   });
+
+  it('describes an unreadable response', () => {
+    expect(describeErrorCode(-1)).toMatch(/could not read/i);
+    expect(describeErrorCode(-1)).toMatch(/debug console/i);
+  });
 });

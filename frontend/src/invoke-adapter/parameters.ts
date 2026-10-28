@@ -236,6 +236,8 @@ export function describeErrorCode(code: number): string {
       return 'MiniMax rejected the request parameters. Adjust the generation settings and retry.';
     case 2049:
       return 'The MiniMax API key is invalid. Check the credentials in Settings.';
+    case -1:
+      return "Aurore could not read MiniMax's response. Open the debug console and share the raw body.";
     default:
       return '';
   }

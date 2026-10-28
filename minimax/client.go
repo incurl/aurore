@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultBaseURL is the documented MiniMax API host.
@@ -191,13 +192,7 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 	}
 
 	if decodeErr != nil {
-		return nil, &Error{
-			StatusCode: StatusInvalidParams,
-			Message:    "the MiniMax response could not be decoded",
-			HTTPStatus: resp.StatusCode,
-			Raw:        rawBody,
-			Err:        decodeErr,
-		}
+		return nil, decodeError(raw, resp.StatusCode, decodeErr)
 	}
 
 	if parsed.BaseResp.StatusCode != StatusOK {
@@ -252,6 +247,54 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 		Message:    "MiniMax returned no images",
 		HTTPStatus: resp.StatusCode,
 	}
+}
+
+// decodeError describes a response body that could not be interpreted.
+//
+// The raw body is kept so that the debug console shows exactly what the
+// API returned, and a short excerpt of it is put into the message, so
+// that the failure can be recognised without opening the console.
+//
+// The status code is StatusUnreadableResponse rather than
+// StatusInvalidParams, because MiniMax never rejected anything here:
+// the request was answered, and the answer was not understood.
+func decodeError(raw []byte, httpStatus int, cause error) *Error {
+	body := strings.TrimSpace(string(raw))
+	if body == "" {
+		return &Error{
+			StatusCode: StatusUnreadableResponse,
+			Message:    "the MiniMax response was empty",
+			HTTPStatus: httpStatus,
+			Err:        cause,
+		}
+	}
+
+	return &Error{
+		StatusCode: StatusUnreadableResponse,
+		Message: fmt.Sprintf("the MiniMax response could not be decoded: %q",
+			excerpt(body, 200)),
+		HTTPStatus: httpStatus,
+		Raw:        string(raw),
+		Err:        cause,
+	}
+}
+
+// excerpt shortens a body so that it fits in a message, collapsing the
+// whitespace that would otherwise break it over many lines.
+//
+// The cut is made on a rune boundary, so a multi-byte character is never
+// split in half.
+func excerpt(body string, limit int) string {
+	collapsed := strings.Join(strings.Fields(body), " ")
+	if len(collapsed) <= limit {
+		return collapsed
+	}
+
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(collapsed[cut]) {
+		cut--
+	}
+	return collapsed[:cut] + "…"
 }
 
 // downloadImage fetches a generated image from a MiniMax CDN URL. These
@@ -313,11 +356,7 @@ func (c *Client) Ping(ctx context.Context) error {
 
 	var parsed ImageResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return &Error{
-			Message: "the MiniMax response could not be decoded",
-			Raw:     string(raw),
-			Err:     err,
-		}
+		return decodeError(raw, resp.StatusCode, err)
 	}
 
 	switch parsed.BaseResp.StatusCode {
