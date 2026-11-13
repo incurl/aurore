@@ -33,7 +33,10 @@ type Client struct {
 	apiKey     string
 	httpClient *http.Client
 	limiter    *RateLimiter
-	sem        chan struct{}
+	// h3Limiter is the H3 limiter. Its tokens are images per minute,
+	// not requests, because that is how MiniMax meters H3.
+	h3Limiter *RateLimiter
+	sem       chan struct{}
 }
 
 // ClientOption configures a Client.
@@ -55,7 +58,19 @@ func WithHTTPClient(hc *http.Client) ClientOption {
 
 // WithRateLimiter overrides the rate limiter.
 func WithRateLimiter(l *RateLimiter) ClientOption {
-	return func(c *Client) { c.limiter = l }
+	return func(c *Client) {
+		c.limiter = l
+		// The H3 limiter is a different bucket with different units, so
+		// a test that disables the Image-01 limiter disables both
+		// unless it sets them separately.
+		c.h3Limiter = l
+	}
+}
+
+// WithH3RateLimiter overrides only the H3 limiter, whose tokens are
+// images rather than requests.
+func WithH3RateLimiter(l *RateLimiter) ClientOption {
+	return func(c *Client) { c.h3Limiter = l }
 }
 
 // WithMaxConcurrent overrides the in-flight request limit.
@@ -75,10 +90,15 @@ func WithMaxConcurrent(n int) ClientOption {
 // "Bearer ..." header still authenticates.
 func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
-		baseURL:    DefaultBaseURL,
-		apiKey:     SanitizeAPIKey(apiKey),
-		httpClient: &http.Client{Timeout: DefaultTimeout},
+		baseURL: DefaultBaseURL,
+		apiKey:  SanitizeAPIKey(apiKey),
+		// The client timeout is the ceiling across both model families.
+		// Each request is bounded more tightly by its own context
+		// timeout, because the H3 server may legitimately take far
+		// longer than Image-01 ever did.
+		httpClient: &http.Client{Timeout: H3Timeout},
 		limiter:    NewDefaultRateLimiter(),
+		h3Limiter:  NewH3RateLimiter(),
 		sem:        make(chan struct{}, DefaultMaxConcurrent),
 	}
 	for _, opt := range opts {
@@ -106,6 +126,10 @@ type GenerateResult struct {
 // It waits for a rate limit token, bounds concurrency, posts the request
 // and decodes the response. Any non-success response is returned as an
 // *Error carrying the MiniMax status code.
+//
+// The H3 family is a different API from Image-01, so it is dispatched to
+// its own path; the caller does not have to know which model families
+// exist.
 func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResult, error) {
 	if strings.TrimSpace(c.apiKey) == "" {
 		return nil, &Error{
@@ -114,10 +138,19 @@ func (c *Client) Generate(ctx context.Context, req ImageRequest) (*GenerateResul
 		}
 	}
 
+	if IsH3Model(req.Model) {
+		return c.generateH3(ctx, req)
+	}
+
 	payload, err := BuildPayload(req)
 	if err != nil {
 		return nil, &Error{StatusCode: StatusInvalidParams, Message: err.Error(), Err: err}
 	}
+
+	// Image-01 has always been bounded at DefaultTimeout, which is far
+	// shorter than the H3 ceiling the shared client now allows.
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -324,9 +357,23 @@ func (c *Client) downloadImage(ctx context.Context, imageURL string) ([]byte, er
 // an authentication problem means the key is bad; a parameter error means
 // the key was accepted. This avoids generating an image (and therefore
 // avoids spending quota) merely to test credentials.
+//
+// It probes the Image-01 endpoint. Use PingModel to check the credentials
+// against the model the user actually selected, which for H3 is a
+// different endpoint with a different error envelope.
 func (c *Client) Ping(ctx context.Context) error {
+	return c.PingModel(ctx, ModelImage01)
+}
+
+// PingModel verifies the API key against the endpoint that serves the
+// given model.
+func (c *Client) PingModel(ctx context.Context, model Model) error {
 	if strings.TrimSpace(c.apiKey) == "" {
 		return &Error{StatusCode: StatusAuthFailed, Message: "no MiniMax API key configured"}
+	}
+
+	if IsH3Model(model) {
+		return c.pingH3(ctx, model)
 	}
 
 	payload := map[string]any{"model": string(ModelImage01), "prompt": ""}

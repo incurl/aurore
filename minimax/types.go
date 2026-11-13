@@ -26,7 +26,90 @@ const (
 	// ModelImage01Live is the "live" image model. It supports the style
 	// preset object but does NOT support aspect_ratio/width/height.
 	ModelImage01Live Model = "image-01-live"
+
+	// ModelH3Image is the MiniMax-H3-Image model.
+	//
+	// It is a different API from the Image-01 family, not a new model on
+	// the same endpoint: text-to-image is POST /v1/images/generations and
+	// image editing is POST /v1/images/edits. It has no seed, no style
+	// preset and no AIGC watermark, it sizes its output with aspect_ratio
+	// and an area level rather than width/height, and it reports errors
+	// in an OpenAI-style envelope with real HTTP status codes.
+	ModelH3Image Model = "MiniMax-H3-Image"
+
+	// ModelH3ImageHighspeed is the faster H3 variant. It takes exactly
+	// the same parameters and limits as ModelH3Image.
+	ModelH3ImageHighspeed Model = "MiniMax-H3-Image-Highspeed"
 )
+
+// IsH3Model reports whether the model belongs to the H3 family, which
+// uses a different endpoint, request shape and error envelope.
+func IsH3Model(model Model) bool {
+	return model == ModelH3Image || model == ModelH3ImageHighspeed
+}
+
+// AllModels lists every model the client understands, in the order used
+// by the UI selector.
+func AllModels() []Model {
+	return []Model{
+		ModelImage01,
+		ModelImage01Live,
+		ModelH3Image,
+		ModelH3ImageHighspeed,
+	}
+}
+
+// IsKnownModel reports whether the client can serve the model.
+func IsKnownModel(model Model) bool {
+	for _, known := range AllModels() {
+		if model == known {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxBatchSizeFor returns the largest "n" the model accepts.
+func MaxBatchSizeFor(model Model) int {
+	if IsH3Model(model) {
+		return H3MaxBatchSize
+	}
+	return MaxBatchSize
+}
+
+// MaxPromptLengthFor returns the longest prompt the model accepts.
+func MaxPromptLengthFor(model Model) int {
+	if IsH3Model(model) {
+		return H3MaxPromptLength
+	}
+	return MaxPromptLength
+}
+
+// Area is the H3 output area level. The server derives the width and
+// height from the aspect ratio and this level.
+type Area string
+
+const (
+	// Area1K targets 1024x1024 pixels.
+	Area1K Area = "1K"
+	// Area2K targets 2048x2048 pixels.
+	Area2K Area = "2K"
+	// Area4K targets 4096x4096 pixels.
+	Area4K Area = "4K"
+)
+
+// AllAreas lists every area level accepted by the H3 API.
+func AllAreas() []Area {
+	return []Area{Area1K, Area2K, Area4K}
+}
+
+// DefaultArea is the area Aurore asks for when the user does not choose
+// one.
+//
+// The API defaults to 4K, which is 4096x4096 and roughly four times the
+// pixel count Aurore could previously ask for, so 2K is a closer match
+// to the old output and a more predictable cost.
+const DefaultArea = Area2K
 
 // AspectRatio is the MiniMax aspect ratio enum. It applies only to
 // ModelImage01. When both aspect_ratio and width/height are supplied the
@@ -148,6 +231,11 @@ type ImageRequest struct {
 	// Height is the output height in pixels. Only valid for ModelImage01.
 	// Must be set together with Width, in [512, 2048], multiple of 8.
 	Height int `json:"height,omitempty"`
+
+	// Area is the H3 output area level. Only valid for H3 models, which
+	// size their output from it and the aspect ratio rather than from a
+	// width and height.
+	Area Area `json:"area,omitempty"`
 
 	// ResponseFormat selects URL or base64 output. Defaults to "url".
 	ResponseFormat ResponseFormat `json:"response_format,omitempty"`
@@ -317,6 +405,9 @@ const (
 	StatusInsufficientBalance = 1008
 	// StatusSensitiveContent indicates the prompt tripped content safety.
 	StatusSensitiveContent = 1026
+	// StatusImageWithheld indicates the content safety check withheld a
+	// generated image. H3 reports it per image rather than per request.
+	StatusImageWithheld = 1027
 	// StatusInvalidParams indicates the request payload was malformed.
 	StatusInvalidParams = 2013
 	// StatusInvalidAPIKey indicates the API key is not valid.
@@ -402,7 +493,7 @@ func (e *Error) HumanMessage() string {
 	}
 	switch e.StatusCode {
 	case StatusRateLimited:
-		return "Rate limited by MiniMax (10 requests per minute). Please wait a moment and retry."
+		return "Rate limited by MiniMax. Please wait a moment and retry."
 	case StatusAuthFailed:
 		// 1004 is the login failure. Once whitespace and quotes are
 		// stripped, the remaining causes are a key taken from the wrong
@@ -415,6 +506,8 @@ func (e *Error) HumanMessage() string {
 		return "The MiniMax account has insufficient balance. Top up the account and retry."
 	case StatusSensitiveContent:
 		return "MiniMax blocked the prompt for sensitive content. Revise the prompt and retry."
+	case StatusImageWithheld:
+		return "MiniMax withheld a generated image because of its content safety check. Revise the prompt and retry."
 	case StatusInvalidParams:
 		return "MiniMax rejected the request parameters. Adjust the generation settings and retry."
 	case StatusUnreadableResponse:

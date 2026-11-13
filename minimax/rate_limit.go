@@ -10,6 +10,11 @@ import (
 // 10 requests per minute for both free and paid tiers.
 const DefaultRateLimit = 10
 
+// H3RateLimit is the documented H3 limit: 1000 images per minute. It is
+// counted in images rather than requests, so a request for ten images
+// spends ten of them.
+const H3RateLimit = 1000
+
 // DefaultRateWindow is the window over which the rate limit applies.
 const DefaultRateWindow = time.Minute
 
@@ -60,6 +65,15 @@ func NewDefaultRateLimiter() *RateLimiter {
 	return NewRateLimiter(DefaultRateLimit, DefaultRateWindow)
 }
 
+// NewH3RateLimiter creates a limiter for the H3 family, whose documented
+// limit is 1000 images per minute.
+//
+// Its tokens are images, not requests: the caller spends one per image
+// asked for, so a batch of ten spends ten.
+func NewH3RateLimiter() *RateLimiter {
+	return NewRateLimiter(H3RateLimit, DefaultRateWindow)
+}
+
 // refillLocked adds the tokens accrued since the last call. The caller
 // must hold the mutex.
 func (r *RateLimiter) refillLocked() {
@@ -76,16 +90,38 @@ func (r *RateLimiter) refillLocked() {
 // Wait blocks until a token is available or the context is cancelled.
 // It returns ctx.Err() if the context is cancelled first.
 func (r *RateLimiter) Wait(ctx context.Context) error {
+	return r.WaitN(ctx, 1)
+}
+
+// WaitN blocks until cost tokens are available, or the context is
+// cancelled. It returns ctx.Err() if the context is cancelled first.
+//
+// The cost matters for the H3 family, whose limit is counted in images
+// rather than requests: a request for n images spends n of the 1000
+// images per minute.
+//
+// A cost above the bucket capacity is clamped to the capacity, so an
+// impossible request waits for a full bucket rather than forever.
+func (r *RateLimiter) WaitN(ctx context.Context, cost int) error {
+	if cost <= 0 {
+		cost = 1
+	}
+	r.mu.Lock()
+	if float64(cost) > r.capacity {
+		cost = int(r.capacity)
+	}
+	r.mu.Unlock()
+
 	for {
 		r.mu.Lock()
 		r.refillLocked()
-		if r.tokens >= 1 {
-			r.tokens--
+		if r.tokens >= float64(cost) {
+			r.tokens -= float64(cost)
 			r.mu.Unlock()
 			return nil
 		}
-		// Compute how long until the next token is available.
-		needed := 1 - r.tokens
+		// Compute how long until enough tokens are available.
+		needed := float64(cost) - r.tokens
 		perSecond := float64(r.limit) / r.window.Seconds()
 		wait := time.Duration(needed / perSecond * float64(time.Second))
 		r.mu.Unlock()

@@ -100,3 +100,45 @@ func TestRateLimiterIsConcurrencySafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestWaitNSpendsOneTokenPerImage verifies that a batch spends a token
+// per image, which is how MiniMax meters H3.
+func TestWaitNSpendsOneTokenPerImage(t *testing.T) {
+	now := time.Now()
+	// Ten images per minute keeps the arithmetic obvious.
+	limiter := NewRateLimiter(10, time.Minute)
+	limiter.SetClock(func() time.Time { return now })
+
+	// Three images cost three of the ten tokens.
+	for i := 0; i < 3; i++ {
+		if err := limiter.WaitN(context.Background(), 1); err != nil {
+			t.Fatalf("WaitN: %v", err)
+		}
+	}
+	if !limiter.Allow() {
+		t.Fatal("seven tokens should remain")
+	}
+
+	// A batch of eight now exceeds what is left, so the bucket must be
+	// emptied rather than letting the whole batch through.
+	if limiter.tokens > 8 {
+		t.Fatalf("tokens = %v, want at most 8", limiter.tokens)
+	}
+}
+
+// TestWaitNClampsACostAboveTheCapacity verifies that an impossible batch
+// does not block forever: the cost is clamped to the bucket capacity, so
+// a full bucket satisfies it.
+func TestWaitNClampsACostAboveTheCapacity(t *testing.T) {
+	limiter := NewRateLimiter(2, time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	if err := limiter.WaitN(ctx, 100); err != nil {
+		t.Fatalf("WaitN with a cost above the capacity: %v", err)
+	}
+	if limiter.Allow() {
+		t.Error("the clamped cost should have emptied the bucket")
+	}
+}
