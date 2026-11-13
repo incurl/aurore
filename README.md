@@ -86,25 +86,67 @@ This is enforced by a capability gate, not by hiding controls with CSS.
 The adapter and the UI never model an unsupported concept, and
 `compliance.test.ts` fails the build if one appears.
 
-| Feature | Support |
-| --- | --- |
-| Positive prompt | Yes |
-| Negative prompt | **Folded into the positive prompt.** MiniMax has no `negative_prompt` field. The UI labels this. |
-| Width / height / aspect ratio | Yes, for `image-01` only |
-| Batch size (`n`, 1–9) | Yes |
-| Seed | Yes (0 means the server picks one) |
-| Reference image | Yes, one image, sent as a base64 data URL |
-| Mask / inpainting | **Applied locally.** MiniMax has no alpha mask field; the mask is composited onto the result. The UI labels this. |
-| Style preset | Yes, for `image-01-live` only |
-| Watermark | Yes (`aigc_watermark`) |
-| Prompt optimiser | Yes |
-| CFG scale, sampler, steps, scheduler, LoRA, ControlNet | **Not supported — never rendered** |
+| Feature | `image-01` / `image-01-live` | `MiniMax-H3-Image` |
+| --- | --- | --- |
+| Positive prompt | Yes (1,500 chars) | Yes (32,000 chars) |
+| Negative prompt | **Folded into the positive prompt.** MiniMax has no `negative_prompt` field for either family. The UI labels this. | Same |
+| Width / height / aspect ratio | Width and height, plus ratio, on `image-01` only | Ratio + area level (`1K`/`2K`/`4K`); no raw size |
+| Batch size (`n`) | 1–9 | 1–10 |
+| Seed | Yes (0 means the server picks one) | **None — the control is not rendered** |
+| Reference image | Yes, one image, sent as a base64 data URL | Yes, 1–16, sent as data URIs to the edit endpoint |
+| Mask / inpainting | **Applied locally.** MiniMax has no alpha mask field; the mask is composited onto the result. The UI labels this. | Same |
+| Style preset | Yes, for `image-01-live` only | **None — the control is not rendered** |
+| Watermark | Yes (`aigc_watermark`) | **None — the control is not rendered** |
+| Prompt optimiser | Yes | Yes, sent inverted as `disable_prompt_enhanced` |
+| Output format | Derived from the bytes | Same (`jpeg` by default) |
+| CFG scale, sampler, steps, scheduler, LoRA, ControlNet | **Not supported — never rendered** | Same |
 
-The MiniMax image generation API is **synchronous**: one `POST
-/v1/image_generation` returns the images inline. There is no task query
-endpoint. The job queue exists to serialise requests against the
-documented **10 requests per minute** limit, to allow cancellation, and
-to give the UI a durable history.
+The Image-01 family is **synchronous**: one `POST /v1/image_generation`
+returns the images inline. There is no task query endpoint. The job queue
+exists to serialise requests against its documented **10 requests per
+minute** limit, to allow cancellation, and to give the UI a durable
+history.
+
+### The H3 family is a different API
+
+`MiniMax-H3-Image` and `MiniMax-H3-Image-Highspeed` are not extra model
+ids on the endpoint above. They are served by two other paths:
+
+| Mode | Endpoint |
+| --- | --- |
+| Text-to-image | `POST /v1/images/generations` |
+| Image edit | `POST /v1/images/edits` |
+
+The differences are not cosmetic, and the client models them rather than
+papering over them:
+
+- **Error envelope.** Image-01 always answers HTTP 200 and puts the code
+  in `base_resp.status_code`. H3 uses an OpenAI-style body with a real
+  HTTP status, and folds the numeric code into the message text
+  (`"... (1004)"`). The client recovers the code, so the same codes and
+  the same user-facing explanations work for both families.
+- **Response shape.** Image-01 returns `data.image_base64[]` and
+  `metadata.success_count` (as a string, see below). H3 returns
+  `data[]` where each entry is an image **or** an error, plus
+  `usage.generated_images` and a `request_id`.
+- **Rate limit.** Image-01 is metered at 10 requests per minute. H3 is
+  metered at **1000 images per minute**, so a batch of ten spends ten of
+  them. The two limits are separate token buckets.
+- **Timeout.** The H3 server waits up to 600 seconds and asks clients to
+  allow at least that long. The shared HTTP client is therefore bounded
+  at the H3 ceiling, and each family applies its own tighter context
+  timeout. A short H3 timeout would abandon a request that is still
+  being generated and is still billed.
+- **Output size.** H3 rejects an out-of-range `size` instead of scaling
+  it, and its minimum area is 655,360 pixels — larger than `512x512`.
+  Aurore therefore sends an aspect ratio and an area level, which cannot
+  fall outside the limits, and only sends an explicit `size` when the
+  pair is valid.
+
+The H3 API is **not idempotent**: once a request is sent, the server
+finishes and charges for the successful images even if the client
+disconnects, and a retry generates and charges again. Aurore does not
+retry a generation automatically for this reason.
 
 One quirk is worth recording, because the published schema and the live
 API disagree: `metadata.success_count` and `metadata.failed_count` are
