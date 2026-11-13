@@ -65,3 +65,63 @@ func TestSaveCredentialsNormalizesTheAPIKey(t *testing.T) {
 		t.Errorf("stored key = %q after a blank save, want %q", key, "abc123")
 	}
 }
+
+// TestCapabilitiesGateTheH3Controls verifies the description the UI uses
+// to decide which controls to render.
+//
+// It is the contract behind the capability gate: a control the model
+// cannot honour must be reported as unsupported, so the UI never offers
+// a setting that would be silently dropped.
+func TestCapabilitiesGateTheH3Controls(t *testing.T) {
+	svc, _ := newTestService(t)
+
+	h3, err := svc.GetCapabilities("MiniMax-H3-Image")
+	if err != nil {
+		t.Fatalf("GetCapabilities: %v", err)
+	}
+
+	if h3.SupportsDimensions {
+		t.Error("H3 does not accept a raw width and height")
+	}
+	if !h3.SupportsAspectRatio {
+		t.Error("H3 does accept an aspect ratio")
+	}
+	if h3.SupportsSeed {
+		// If this regresses, the UI would offer a seed that never reaches
+		// the model.
+		t.Error("H3 has no seed field")
+	}
+	if h3.SupportsWatermark {
+		t.Error("H3 has no watermark field")
+	}
+	if h3.SupportsStyle {
+		t.Error("H3 has no style presets")
+	}
+	if len(h3.Areas) != 3 {
+		t.Errorf("areas = %v, want three levels", h3.Areas)
+	}
+	if h3.MaxBatchSize != 10 {
+		t.Errorf("max batch = %d, want 10", h3.MaxBatchSize)
+	}
+	if h3.MaxPromptLength != 32000 {
+		t.Errorf("max prompt = %d, want 32000", h3.MaxPromptLength)
+	}
+
+	// The Image-01 family keeps its own description.
+	image01, err := svc.GetCapabilities("image-01")
+	if err != nil {
+		t.Fatalf("GetCapabilities: %v", err)
+	}
+	if !image01.SupportsDimensions {
+		t.Error("image-01 does accept a width and height")
+	}
+	if !image01.SupportsSeed {
+		t.Error("image-01 does accept a seed")
+	}
+	if len(image01.Areas) != 0 {
+		t.Errorf("areas = %v, want none for image-01", image01.Areas)
+	}
+	if image01.MaxBatchSize != 9 {
+		t.Errorf("max batch = %d, want 9", image01.MaxBatchSize)
+	}
+}

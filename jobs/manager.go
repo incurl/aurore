@@ -127,14 +127,17 @@ func (m *Manager) Submit(ctx context.Context, req Request) (Job, error) {
 	if req.Prompt == "" {
 		return Job{}, fmt.Errorf("a prompt is required")
 	}
+	if req.Params.Model == "" {
+		req.Params.Model = string(minimax.ModelImage01)
+	}
+	if !minimax.IsKnownModel(minimax.Model(req.Params.Model)) {
+		return Job{}, fmt.Errorf("unknown MiniMax model %q", req.Params.Model)
+	}
 	if req.Params.BatchSize <= 0 {
 		req.Params.BatchSize = 1
 	}
-	if req.Params.BatchSize > 9 {
-		req.Params.BatchSize = 9
-	}
-	if req.Params.Model == "" {
-		req.Params.Model = string(minimax.ModelImage01)
+	if max := minimax.MaxBatchSizeFor(minimax.Model(req.Params.Model)); req.Params.BatchSize > max {
+		req.Params.BatchSize = max
 	}
 	if req.Params.MaskMode == "" {
 		req.Params.MaskMode = MaskModeInside

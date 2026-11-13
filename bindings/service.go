@@ -69,12 +69,21 @@ func (s *AppService) Settings() *pocketbase.SettingsStore { return s.settings }
 type Capabilities struct {
 	// Model is the currently selected model.
 	Model string `json:"model"`
-	// SupportsDimensions reports whether width/height and aspect_ratio
-	// may be set. Only image-01 supports them.
+	// SupportsDimensions reports whether width/height may be set. Only
+	// image-01 accepts a raw size; H3 sizes from a ratio and an area.
 	SupportsDimensions bool `json:"supports_dimensions"`
+	// SupportsAspectRatio reports whether the aspect ratio selector
+	// applies. image-01, image-01-live and H3 all accept one.
+	SupportsAspectRatio bool `json:"supports_aspect_ratio"`
 	// SupportsStyle reports whether a style preset may be selected.
 	// Only image-01-live supports it.
 	SupportsStyle bool `json:"supports_style"`
+	// SupportsSeed reports whether the seed control applies. H3 has no
+	// seed field.
+	SupportsSeed bool `json:"supports_seed"`
+	// SupportsWatermark reports whether the AIGC watermark applies. H3
+	// has no such field.
+	SupportsWatermark bool `json:"supports_watermark"`
 	// SupportsReferenceImage reports whether a reference image may be
 	// attached.
 	SupportsReferenceImage bool `json:"supports_reference_image"`
@@ -91,6 +100,9 @@ type Capabilities struct {
 	AspectRatios []string `json:"aspect_ratios"`
 	// StyleTypes lists the selectable style presets.
 	StyleTypes []string `json:"style_types"`
+	// Areas lists the selectable output area levels. It is empty for the
+	// Image-01 family, which sizes with width and height instead.
+	Areas []string `json:"areas"`
 	// MinDimension and MaxDimension bound the dimension inputs.
 	MinDimension int `json:"min_dimension"`
 	// MaxDimension bounds the dimension inputs.
@@ -112,18 +124,22 @@ func (s *AppService) GetCapabilities(model string) (Capabilities, error) {
 		model = configured
 	}
 
+	m := minimax.Model(model)
 	capabilities := Capabilities{
 		Model:                  model,
-		SupportsDimensions:     minimax.SupportsDimensions(minimax.Model(model)),
-		SupportsStyle:          minimax.SupportsStyle(minimax.Model(model)),
-		SupportsReferenceImage: true,
+		SupportsDimensions:     minimax.SupportsDimensions(m),
+		SupportsAspectRatio:    minimax.SupportsAspectRatio(m),
+		SupportsStyle:          minimax.SupportsStyle(m),
+		SupportsSeed:           minimax.SupportsSeed(m),
+		SupportsWatermark:      minimax.SupportsWatermark(m),
+		SupportsReferenceImage: minimax.SupportsImageEdit(m),
 		// MiniMax has neither a negative_prompt nor a mask field.
 		SupportsNegativePrompt: false,
 		SupportsMask:           false,
 		MinDimension:           minimax.MinDimension,
 		MaxDimension:           minimax.MaxDimension,
-		MaxBatchSize:           minimax.MaxBatchSize,
-		MaxPromptLength:        minimax.MaxPromptLength,
+		MaxBatchSize:           minimax.MaxBatchSizeFor(m),
+		MaxPromptLength:        minimax.MaxPromptLengthFor(m),
 	}
 
 	for _, ratio := range minimax.AllAspectRatios() {
@@ -131,6 +147,11 @@ func (s *AppService) GetCapabilities(model string) (Capabilities, error) {
 	}
 	for _, style := range minimax.AllStyleTypes() {
 		capabilities.StyleTypes = append(capabilities.StyleTypes, string(style))
+	}
+	if minimax.IsH3Model(m) {
+		for _, area := range minimax.AllAreas() {
+			capabilities.Areas = append(capabilities.Areas, string(area))
+		}
 	}
 
 	return capabilities, nil
@@ -251,7 +272,15 @@ func (s *AppService) TestCredentials() error {
 		"testing the MiniMax connection at %s with a key of %s",
 		baseURL, minimax.FingerprintAPIKey(apiKey)))
 
-	err = client.Ping(context.Background())
+	// Probe the endpoint that serves the configured model: H3 is a
+	// different path with a different error envelope, so checking the
+	// Image-01 endpoint would not prove the selected model works.
+	model, err := s.settings.GetModel()
+	if err != nil {
+		return err
+	}
+
+	err = client.PingModel(context.Background(), minimax.Model(model))
 	if err != nil {
 		// The failure is recorded with the raw response body, because
 		// this is where an unexpected API answer is usually spotted.

@@ -756,3 +756,97 @@ func TestGeneratedImageURLsAreServable(t *testing.T) {
 		t.Error("the image record has no thumbnail")
 	}
 }
+
+// TestSubmitH3JobUsesTheEditEndpoint verifies that an H3 job with a
+// reference image is sent to the edit endpoint, and that the job stores
+// the images it returns.
+//
+// It is the join between the two halves of the H3 support: the jobs
+// layer hands the reference over as a subject reference, and the client
+// turns that into images[] on the edit path.
+func TestSubmitH3JobUsesTheEditEndpoint(t *testing.T) {
+	app := newTestApp(t)
+
+	png := base64.StdEncoding.EncodeToString(pngBytes(t, 0, 0, 0))
+	var gotPath string
+	var gotBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"` + png + `"}],` +
+			`"usage":{"generated_images":1},"request_id":"h3-req"}`))
+	}))
+	defer srv.Close()
+
+	manager := NewManager(app,
+		WithClientFactory(func(ctx context.Context) (*minimax.Client, error) {
+			return minimax.NewClient("key",
+				minimax.WithBaseURL(srv.URL),
+				minimax.WithHTTPClient(srv.Client()),
+				minimax.WithRateLimiter(minimax.NewRateLimiter(1000, time.Millisecond)),
+			), nil
+		}),
+	)
+
+	// A reference image is uploaded first, because that is what selects
+	// the edit endpoint.
+	asset, err := manager.UploadAsset("reference", pngBytes(t, 0, 0, 0), "ref.png")
+	if err != nil {
+		t.Fatalf("UploadAsset: %v", err)
+	}
+
+	job, err := manager.Submit(context.Background(), Request{
+		Prompt:           "make it steampunk",
+		ReferenceAssetID: asset.ID,
+		Params: Params{
+			Model:     string(minimax.ModelH3Image),
+			BatchSize: 1,
+			Area:      string(minimax.Area2K),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	done := waitForStatus(t, manager, job.ID, aurorepb.StatusCompleted, aurorepb.StatusFailed)
+	if done.Status != aurorepb.StatusCompleted {
+		t.Fatalf("status = %q, want completed (error %d: %s)",
+			done.Status, done.ErrorCode, done.ErrorMessage)
+	}
+
+	if gotPath != minimax.H3EditsPath {
+		t.Errorf("path = %q, want %q", gotPath, minimax.H3EditsPath)
+	}
+	if gotBody["area"] != string(minimax.Area2K) {
+		t.Errorf("sent area = %v, want 2K", gotBody["area"])
+	}
+	if _, ok := gotBody["seed"]; ok {
+		t.Error("the H3 request must not carry a seed")
+	}
+	if images, ok := gotBody["images"].([]any); !ok || len(images) != 1 {
+		t.Errorf("sent images = %v, want one reference", gotBody["images"])
+	}
+
+	images, err := manager.ListImages(job.ID, 10)
+	if err != nil {
+		t.Fatalf("ListImages: %v", err)
+	}
+	if len(images) != 1 {
+		t.Errorf("images = %d, want 1", len(images))
+	}
+}
+
+// TestSubmitRejectsAnUnknownModel verifies the guard on the model name.
+func TestSubmitRejectsAnUnknownModel(t *testing.T) {
+	app := newTestApp(t)
+	manager := NewManager(app)
+
+	if _, err := manager.Submit(context.Background(), Request{
+		Prompt: "x",
+		Params: Params{Model: "not-a-model", BatchSize: 1},
+	}); err == nil {
+		t.Fatal("expected an error for an unknown model")
+	}
+}

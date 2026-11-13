@@ -24,6 +24,10 @@ type Params struct {
 	// Width and Height are the requested output dimensions.
 	Width  int `json:"width"`
 	Height int `json:"height"`
+	// Area is the H3 output area level (1K, 2K or 4K). H3 derives the
+	// dimensions from it and the aspect ratio, so Width and Height are
+	// not used for that family.
+	Area string `json:"area"`
 	// BatchSize is the number of images to generate (1-9).
 	BatchSize int `json:"batch_size"`
 	// Seed is the requested seed; 0 means the server picks one.
@@ -155,14 +159,22 @@ func (r Request) toMiniMaxRequest(referenceDataURL string) minimax.ImageRequest 
 		req.NegativePrompt = ""
 	}
 
-	if r.Params.Model == string(minimax.ModelImage01Live) {
+	model := minimax.Model(r.Params.Model)
+	switch {
+	case model == minimax.ModelImage01Live:
 		if r.Params.StyleType != "" {
 			req.Style = &minimax.StyleObject{
 				StyleType:   minimax.StyleType(r.Params.StyleType),
 				StyleWeight: r.Params.StyleWeight,
 			}
 		}
-	} else {
+	case minimax.IsH3Model(model):
+		// H3 sizes its output from the ratio and an area level; a raw
+		// width and height would be ignored, or rejected when they fall
+		// outside its area limits.
+		req.AspectRatio = minimax.AspectRatio(r.Params.AspectRatio)
+		req.Area = minimax.Area(r.Params.Area)
+	default:
 		req.AspectRatio = minimax.AspectRatio(r.Params.AspectRatio)
 		req.Width = r.Params.Width
 		req.Height = r.Params.Height
