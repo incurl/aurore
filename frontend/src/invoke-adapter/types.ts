@@ -10,7 +10,19 @@
  */
 
 /** MiniMax image models. */
-export type MiniMaxModel = 'image-01' | 'image-01-live';
+export type MiniMaxModel =
+  | 'image-01'
+  | 'image-01-live'
+  | 'MiniMax-H3-Image'
+  | 'MiniMax-H3-Image-Highspeed';
+
+/**
+ * The H3 output area level.
+ *
+ * H3 derives the width and height from the aspect ratio and this level,
+ * rather than taking a raw size.
+ */
+export type ImageArea = '1K' | '2K' | '4K';
 
 /** MiniMax aspect ratios. */
 export type AspectRatio =
@@ -48,6 +60,8 @@ export interface GenerationFormState {
   width: number;
   /** Explicit output height. Only valid for `image-01`. */
   height: number;
+  /** H3 output area level. Only valid for the H3 models. */
+  area: ImageArea;
   /** Number of images to generate (1-9). */
   batchSize: number;
   /** Requested seed. Zero means the server picks a random seed. */
@@ -88,6 +102,8 @@ export interface GenerationRequest {
     aspect_ratio: string;
     width: number;
     height: number;
+    /** H3 output area level; ignored by the Image-01 family. */
+    area: string;
     batch_size: number;
     seed: number;
     prompt_optimizer: boolean;

@@ -13,13 +13,20 @@
 
 import {
   ASPECT_RATIOS,
+  IMAGE_AREAS,
   MAX_BATCH_SIZE,
   MIN_DIMENSION,
   MAX_DIMENSION,
   MODELS,
   STYLE_TYPES,
 } from '../../invoke-adapter/parameters';
-import type { AspectRatio, Capabilities, MiniMaxModel, StyleType } from '../../invoke-adapter/types';
+import type {
+  AspectRatio,
+  Capabilities,
+  ImageArea,
+  MiniMaxModel,
+  StyleType,
+} from '../../invoke-adapter/types';
 
 interface ParameterPanelProps {
   capabilities: Capabilities;
@@ -27,6 +34,7 @@ interface ParameterPanelProps {
   aspectRatio: AspectRatio;
   width: number;
   height: number;
+  area: ImageArea;
   batchSize: number;
   seed: number;
   promptOptimizer: boolean;
@@ -37,6 +45,7 @@ interface ParameterPanelProps {
   onAspectRatioChange: (ratio: AspectRatio) => void;
   onWidthChange: (value: number) => void;
   onHeightChange: (value: number) => void;
+  onAreaChange: (area: ImageArea) => void;
   onBatchSizeChange: (value: number) => void;
   onSeedChange: (value: number) => void;
   onPromptOptimizerChange: (value: boolean) => void;
@@ -55,6 +64,7 @@ export function ParameterPanel({
   aspectRatio,
   width,
   height,
+  area,
   batchSize,
   seed,
   promptOptimizer,
@@ -65,6 +75,7 @@ export function ParameterPanel({
   onAspectRatioChange,
   onWidthChange,
   onHeightChange,
+  onAreaChange,
   onBatchSizeChange,
   onSeedChange,
   onPromptOptimizerChange,
@@ -73,8 +84,13 @@ export function ParameterPanel({
   onStyleWeightChange,
   onRandomiseSeed,
 }: ParameterPanelProps) {
+  const showAspectRatio = capabilities.supports_aspect_ratio;
   const showDimensions = capabilities.supports_dimensions;
+  const showArea = (capabilities.areas ?? []).length > 0;
   const showStyle = capabilities.supports_style;
+  const showSeed = capabilities.supports_seed;
+  const showWatermark = capabilities.supports_watermark;
+  const maxBatchSize = capabilities.max_batch_size || MAX_BATCH_SIZE;
 
   return (
     <section className="panel">
@@ -99,25 +115,50 @@ export function ParameterPanel({
           </select>
         </div>
 
+        {showAspectRatio && (
+          <div className="field">
+            <label className="field-label" htmlFor="param-aspect">
+              Aspect ratio
+            </label>
+            <select
+              id="param-aspect"
+              value={aspectRatio}
+              onChange={(event) => onAspectRatioChange(event.target.value as AspectRatio)}
+            >
+              {ASPECT_RATIOS.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {showArea && (
+          <div className="field">
+            <label className="field-label" htmlFor="param-area">
+              Output area
+            </label>
+            <select
+              id="param-area"
+              value={area}
+              onChange={(event) => onAreaChange(event.target.value as ImageArea)}
+            >
+              {IMAGE_AREAS.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <span className="field-hint">
+              The model derives the width and height from the aspect ratio and this level. 2K is
+              roughly 2048×2048; 4K is four times that.
+            </span>
+          </div>
+        )}
+
         {showDimensions && (
           <>
-            <div className="field">
-              <label className="field-label" htmlFor="param-aspect">
-                Aspect ratio
-              </label>
-              <select
-                id="param-aspect"
-                value={aspectRatio}
-                onChange={(event) => onAspectRatioChange(event.target.value as AspectRatio)}
-              >
-                {ASPECT_RATIOS.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div className="field">
               <label className="field-label" htmlFor="param-width">
                 Width &amp; height
@@ -200,35 +241,37 @@ export function ParameterPanel({
               id="param-batch"
               type="number"
               min={1}
-              max={MAX_BATCH_SIZE}
+              max={maxBatchSize}
               value={batchSize}
               onChange={(event) => onBatchSizeChange(Number(event.target.value))}
             />
           </div>
 
-          <div className="field">
-            <label className="field-label" htmlFor="param-seed">
-              Seed
-            </label>
-            <div className="field-row">
-              <input
-                id="param-seed"
-                type="number"
-                min={0}
-                value={seed}
-                placeholder="random"
-                onChange={(event) => onSeedChange(Number(event.target.value))}
-              />
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ flex: '0 0 auto' }}
-                onClick={onRandomiseSeed}
-              >
-                Random
-              </button>
+          {showSeed && (
+            <div className="field">
+              <label className="field-label" htmlFor="param-seed">
+                Seed
+              </label>
+              <div className="field-row">
+                <input
+                  id="param-seed"
+                  type="number"
+                  min={0}
+                  value={seed}
+                  placeholder="random"
+                  onChange={(event) => onSeedChange(Number(event.target.value))}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ flex: '0 0 auto' }}
+                  onClick={onRandomiseSeed}
+                >
+                  Random
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <label className="checkbox">
@@ -243,22 +286,24 @@ export function ParameterPanel({
           </span>
         </label>
 
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={watermark}
-            onChange={(event) => onWatermarkChange(event.target.checked)}
-          />
-          <span className="checkbox-text">
-            <span className="checkbox-title">AI watermark</span>
-            <span className="field-hint">Adds the MiniMax generated-content watermark.</span>
-          </span>
-        </label>
+        {showWatermark && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={watermark}
+              onChange={(event) => onWatermarkChange(event.target.checked)}
+            />
+            <span className="checkbox-text">
+              <span className="checkbox-title">AI watermark</span>
+              <span className="field-hint">Adds the MiniMax generated-content watermark.</span>
+            </span>
+          </label>
+        )}
 
-        {!showDimensions && (
+        {!showAspectRatio && (
           <div className="notice">
-            <span className="mono">image-01-live</span> does not accept dimensions or an aspect
-            ratio. Switch to <span className="mono">image-01</span> to control the output size.
+            <span className="mono">image-01-live</span> does not accept an aspect ratio or
+            dimensions. Switch to another model to control the output size.
           </div>
         )}
 

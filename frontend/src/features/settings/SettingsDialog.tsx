@@ -11,6 +11,13 @@
 import { useEffect, useState } from 'react';
 
 import type { Settings } from '../../invoke-adapter/types';
+import {
+  clampBatchSize,
+  H3_MAX_BATCH_SIZE,
+  isH3Model,
+  MAX_BATCH_SIZE,
+  MODELS,
+} from '../../invoke-adapter/parameters';
 import { applyZoom, clampZoom, MAX_ZOOM, MIN_ZOOM, ZOOM_PRESETS } from '../../ui/zoom';
 
 interface SettingsDialogProps {
@@ -120,8 +127,11 @@ export function SettingsDialog({
               value={model}
               onChange={(event) => setModel(event.target.value)}
             >
-              <option value="image-01">image-01</option>
-              <option value="image-01-live">image-01-live</option>
+              {MODELS.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -134,7 +144,7 @@ export function SettingsDialog({
                 id="settings-batch"
                 type="number"
                 min={1}
-                max={9}
+                max={isH3Model(model) ? H3_MAX_BATCH_SIZE : MAX_BATCH_SIZE}
                 value={batchSize}
                 onChange={(event) => setBatchSize(Number(event.target.value))}
               />
@@ -218,7 +228,13 @@ export function SettingsDialog({
                 }),
                 model,
                 aspect_ratio: aspectRatio,
-                batch_size: batchSize,
+                // The default batch must respect the selected model's
+                // limit, so switching from H3 to image-01 cannot persist
+                // a batch of ten that the next job would reject.
+                batch_size: clampBatchSize(
+                  batchSize,
+                  isH3Model(model) ? H3_MAX_BATCH_SIZE : MAX_BATCH_SIZE,
+                ),
               })
             }
           >

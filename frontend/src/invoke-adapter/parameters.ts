@@ -17,6 +17,7 @@ import type {
   Capabilities,
   GenerationFormState,
   GenerationRequest,
+  ImageArea,
   MiniMaxModel,
   StyleType,
 } from './types';
@@ -29,6 +30,7 @@ export const DEFAULT_FORM_STATE: GenerationFormState = {
   aspectRatio: '1:1',
   width: 1024,
   height: 1024,
+  area: '2K',
   batchSize: 1,
   seed: 0,
   promptOptimizer: false,
@@ -53,8 +55,17 @@ export const DIMENSION_MULTIPLE = 8;
 /** The largest batch MiniMax accepts. */
 export const MAX_BATCH_SIZE = 9;
 
+/** The largest batch the H3 models accept. */
+export const H3_MAX_BATCH_SIZE = 10;
+
+/** The H3 output area levels. */
+export const IMAGE_AREAS: ImageArea[] = ['1K', '2K', '4K'];
+
 /** The prompt character limit. */
 export const MAX_PROMPT_LENGTH = 1500;
+
+/** The prompt character limit for the H3 models. */
+export const H3_MAX_PROMPT_LENGTH = 32000;
 
 /** The aspect ratios MiniMax accepts. */
 export const ASPECT_RATIOS: AspectRatio[] = [
@@ -72,7 +83,25 @@ export const ASPECT_RATIOS: AspectRatio[] = [
 export const STYLE_TYPES: StyleType[] = ['漫画', '元气', '中世纪', '水彩'];
 
 /** The models MiniMax offers. */
-export const MODELS: MiniMaxModel[] = ['image-01', 'image-01-live'];
+export const MODELS: MiniMaxModel[] = [
+  'image-01',
+  'image-01-live',
+  'MiniMax-H3-Image',
+  'MiniMax-H3-Image-Highspeed',
+];
+
+/**
+ * Reports whether the model belongs to the H3 family.
+ *
+ * The H3 models are a different API from Image-01: they have no seed,
+ * style or watermark, and they size from a ratio and an area.
+ *
+ * It takes a plain string because the selected model comes back from the
+ * backend as one, and a value this does not recognise is simply not H3.
+ */
+export function isH3Model(model: string): boolean {
+  return model === 'MiniMax-H3-Image' || model === 'MiniMax-H3-Image-Highspeed';
+}
 
 /**
  * Reports whether a width/height pair satisfies the MiniMax constraints:
@@ -94,11 +123,11 @@ export function isValidDimensionPair(width: number, height: number): boolean {
 /**
  * Clamps a batch size into the range MiniMax accepts.
  */
-export function clampBatchSize(batchSize: number): number {
+export function clampBatchSize(batchSize: number, max = MAX_BATCH_SIZE): number {
   if (!Number.isFinite(batchSize)) {
     return 1;
   }
-  return Math.min(MAX_BATCH_SIZE, Math.max(1, Math.trunc(batchSize)));
+  return Math.min(max, Math.max(1, Math.trunc(batchSize)));
 }
 
 /**
@@ -116,16 +145,24 @@ export function clampDimension(value: number): number {
 /**
  * Truncates a prompt to the MiniMax character limit.
  */
-export function clampPrompt(prompt: string): string {
-  return prompt.length > MAX_PROMPT_LENGTH ? prompt.slice(0, MAX_PROMPT_LENGTH) : prompt;
+export function clampPrompt(prompt: string, limit = MAX_PROMPT_LENGTH): string {
+  return prompt.length > limit ? prompt.slice(0, limit) : prompt;
 }
 
 /**
  * Reports whether the model accepts explicit dimensions.
  *
- * Only `image-01` supports aspect_ratio/width/height.
+ * Only `image-01` accepts a raw width and height. The H3 models size
+ * their output from an aspect ratio and an area level instead.
  */
 export function supportsDimensions(model: string): boolean {
+  return model === 'image-01';
+}
+
+/**
+ * Reports whether the model accepts an aspect ratio.
+ */
+export function supportsAspectRatio(model: string): boolean {
   return model !== 'image-01-live';
 }
 
@@ -152,17 +189,23 @@ export function supportsStyle(model: string): boolean {
  * - the seed is passed through untouched (0 means "server picks").
  */
 export function toGenerationRequest(form: GenerationFormState): GenerationRequest {
-  const isLive = !supportsDimensions(form.model);
+  const h3 = isH3Model(form.model);
+  const explicitSize = supportsDimensions(form.model);
+  const maxBatch = h3 ? H3_MAX_BATCH_SIZE : MAX_BATCH_SIZE;
 
   const params = {
     model: form.model,
-    aspect_ratio: isLive ? '' : form.aspectRatio,
-    width: isLive ? 0 : clampDimension(form.width),
-    height: isLive ? 0 : clampDimension(form.height),
-    batch_size: clampBatchSize(form.batchSize),
-    seed: form.seed,
+    aspect_ratio: supportsAspectRatio(form.model) ? form.aspectRatio : '',
+    width: explicitSize ? clampDimension(form.width) : 0,
+    height: explicitSize ? clampDimension(form.height) : 0,
+    // The area level is only meaningful to H3, and is dropped for the
+    // Image-01 family so it cannot leak into a request that has no such
+    // field.
+    area: h3 ? form.area : '',
+    batch_size: clampBatchSize(form.batchSize, maxBatch),
+    seed: h3 ? 0 : form.seed,
     prompt_optimizer: form.promptOptimizer,
-    watermark: form.watermark,
+    watermark: h3 ? false : form.watermark,
     style_type: supportsStyle(form.model) ? form.styleType : '',
     style_weight: supportsStyle(form.model) ? form.styleWeight : 0,
     use_negative_prompt: form.useNegativePrompt,
@@ -170,7 +213,7 @@ export function toGenerationRequest(form: GenerationFormState): GenerationReques
   };
 
   return {
-    prompt: clampPrompt(form.prompt.trim()),
+    prompt: clampPrompt(form.prompt.trim(), h3 ? H3_MAX_PROMPT_LENGTH : MAX_PROMPT_LENGTH),
     negative_prompt: form.negativePrompt.trim(),
     params,
     reference_asset_id: form.referenceAssetId,
@@ -185,12 +228,15 @@ export function toGenerationRequest(form: GenerationFormState): GenerationReques
  */
 export function validateForm(form: GenerationFormState): string[] {
   const problems: string[] = [];
+  const h3 = isH3Model(form.model);
+  const maxPrompt = h3 ? H3_MAX_PROMPT_LENGTH : MAX_PROMPT_LENGTH;
+  const maxBatch = h3 ? H3_MAX_BATCH_SIZE : MAX_BATCH_SIZE;
 
   if (form.prompt.trim().length === 0) {
     problems.push('Enter a prompt before generating.');
-  } else if (form.prompt.length > MAX_PROMPT_LENGTH) {
+  } else if (form.prompt.length > maxPrompt) {
     problems.push(
-      `The prompt is ${form.prompt.length} characters. MiniMax accepts at most ${MAX_PROMPT_LENGTH}.`,
+      `The prompt is ${form.prompt.length} characters. This model accepts at most ${maxPrompt}.`,
     );
   }
 
@@ -202,8 +248,8 @@ export function validateForm(form: GenerationFormState): string[] {
     }
   }
 
-  if (form.batchSize < 1 || form.batchSize > MAX_BATCH_SIZE) {
-    problems.push(`The batch size must be between 1 and ${MAX_BATCH_SIZE}.`);
+  if (form.batchSize < 1 || form.batchSize > maxBatch) {
+    problems.push(`The batch size must be between 1 and ${maxBatch}.`);
   }
 
   if (supportsStyle(form.model) && form.styleType && !STYLE_TYPES.includes(form.styleType)) {
@@ -225,13 +271,15 @@ export function validateForm(form: GenerationFormState): string[] {
 export function describeErrorCode(code: number): string {
   switch (code) {
     case 1002:
-      return 'Rate limited by MiniMax (10 requests per minute). Please wait a moment and retry.';
+      return 'Rate limited by MiniMax. Please wait a moment and retry.';
     case 1004:
       return 'MiniMax rejected the API key. Check the credentials in Settings.';
     case 1008:
       return 'The MiniMax account has insufficient balance. Top up the account and retry.';
     case 1026:
       return 'MiniMax blocked the prompt for sensitive content. Revise the prompt and retry.';
+    case 1027:
+      return 'MiniMax withheld a generated image because of its content safety check. Revise the prompt and retry.';
     case 2013:
       return 'MiniMax rejected the request parameters. Adjust the generation settings and retry.';
     case 2049:
@@ -255,16 +303,30 @@ export function applyCapabilities(
 ): GenerationFormState {
   const next: GenerationFormState = { ...form };
 
-  if (!capabilities.supports_dimensions) {
-    next.aspectRatio = '1:1';
-    next.width = 0;
-    next.height = 0;
-  } else {
+  // The aspect ratio and the raw width/height are gated separately,
+  // because H3 accepts a ratio plus an area level but no raw size.
+  if (capabilities.supports_aspect_ratio) {
     if (!capabilities.aspect_ratios.includes(next.aspectRatio)) {
       next.aspectRatio = (capabilities.aspect_ratios[0] ?? '1:1') as AspectRatio;
     }
+  } else {
+    next.aspectRatio = '1:1';
+  }
+
+  if (capabilities.supports_dimensions) {
     next.width = clampDimension(next.width || capabilities.min_dimension);
     next.height = clampDimension(next.height || capabilities.min_dimension);
+  } else {
+    next.width = 0;
+    next.height = 0;
+  }
+
+  // The area level only exists for the models that offer one.
+  const areas = capabilities.areas ?? [];
+  if (areas.length === 0) {
+    next.area = '2K';
+  } else if (!areas.includes(next.area)) {
+    next.area = (areas.includes('2K') ? '2K' : areas[0]) as ImageArea;
   }
 
   if (!capabilities.supports_style) {
@@ -274,7 +336,15 @@ export function applyCapabilities(
     next.styleType = '';
   }
 
-  next.batchSize = clampBatchSize(next.batchSize);
+  // A seed the model cannot accept must not be presented as if it could.
+  if (!capabilities.supports_seed) {
+    next.seed = 0;
+  }
+  if (!capabilities.supports_watermark) {
+    next.watermark = false;
+  }
+
+  next.batchSize = clampBatchSize(next.batchSize, capabilities.max_batch_size);
 
   return next;
 }

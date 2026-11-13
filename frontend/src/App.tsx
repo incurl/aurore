@@ -19,6 +19,7 @@ import './styles.css';
 import {
   applyCapabilities,
   DEFAULT_FORM_STATE,
+  isH3Model,
   toGenerationRequest,
   validateForm,
 } from './invoke-adapter/parameters';
@@ -468,17 +469,21 @@ function App() {
   const problems = validateForm(form);
   const capabilities: Capabilities = capabilitiesQuery.data ?? {
     model: form.model,
-    supports_dimensions: form.model !== 'image-01-live',
+    supports_dimensions: form.model === 'image-01',
+    supports_aspect_ratio: form.model !== 'image-01-live',
     supports_style: form.model === 'image-01-live',
+    supports_seed: !isH3Model(form.model),
+    supports_watermark: !isH3Model(form.model),
     supports_reference_image: true,
     supports_negative_prompt: false,
     supports_mask: false,
     aspect_ratios: ['1:1'],
     style_types: [],
+    areas: isH3Model(form.model) ? ['1K', '2K', '4K'] : [],
     min_dimension: 512,
     max_dimension: 2048,
-    max_batch_size: 9,
-    max_prompt_length: 1500,
+    max_batch_size: isH3Model(form.model) ? 10 : 9,
+    max_prompt_length: isH3Model(form.model) ? 32000 : 1500,
   };
 
   const selectedImage = images.find((image) => image.id === selectedImageId) ?? null;
@@ -534,6 +539,7 @@ function App() {
           aspectRatio={form.aspectRatio}
           width={form.width}
           height={form.height}
+          area={form.area}
           batchSize={form.batchSize}
           seed={form.seed}
           promptOptimizer={form.promptOptimizer}
@@ -544,6 +550,7 @@ function App() {
           onAspectRatioChange={(value) => updateForm({ aspectRatio: value })}
           onWidthChange={(value) => updateForm({ width: value })}
           onHeightChange={(value) => updateForm({ height: value })}
+          onAreaChange={(value) => updateForm({ area: value })}
           onBatchSizeChange={(value) => updateForm({ batchSize: value })}
           onSeedChange={(value) => updateForm({ seed: value })}
           onPromptOptimizerChange={(value) => updateForm({ promptOptimizer: value })}

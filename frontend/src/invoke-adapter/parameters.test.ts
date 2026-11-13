@@ -7,8 +7,12 @@ import {
   clampPrompt,
   DEFAULT_FORM_STATE,
   describeErrorCode,
+  H3_MAX_BATCH_SIZE,
+  H3_MAX_PROMPT_LENGTH,
+  isH3Model,
   isValidDimensionPair,
   MAX_PROMPT_LENGTH,
+  MODELS,
   supportsDimensions,
   supportsStyle,
   toGenerationRequest,
@@ -285,5 +289,97 @@ describe('describeErrorCode', () => {
   it('describes an unreadable response', () => {
     expect(describeErrorCode(-1)).toMatch(/could not read/i);
     expect(describeErrorCode(-1)).toMatch(/debug console/i);
+  });
+});
+
+describe('the H3 models', () => {
+  const h3Form = {
+    ...DEFAULT_FORM_STATE,
+    model: 'MiniMax-H3-Image' as const,
+    prompt: 'an orange cat',
+    area: '4K' as const,
+    seed: 1234,
+    watermark: true,
+    width: 1024,
+    height: 1024,
+    batchSize: 10,
+  };
+
+  it('are offered in the model list', () => {
+    expect(MODELS).toContain('MiniMax-H3-Image');
+    expect(MODELS).toContain('MiniMax-H3-Image-Highspeed');
+    // The settings dialog renders this list and passes back a raw string,
+    // so every entry must survive that round trip.
+    expect(MODELS).toHaveLength(4);
+    for (const model of MODELS) {
+      if (model.startsWith('MiniMax-H3')) {
+        expect(isH3Model(model)).toBe(true);
+      } else {
+        expect(isH3Model(model)).toBe(false);
+      }
+    }
+    expect(isH3Model('something-else')).toBe(false);
+  });
+
+  it('send an area, and drop the seed and watermark the API has no field for', () => {
+    const req = toGenerationRequest(h3Form);
+    expect(req.params.area).toBe('4K');
+    expect(req.params.seed).toBe(0);
+    expect(req.params.watermark).toBe(false);
+    expect(req.params.aspect_ratio).toBe('1:1');
+    // H3 sizes from the ratio and area, never from a raw width/height.
+    expect(req.params.width).toBe(0);
+    expect(req.params.height).toBe(0);
+  });
+
+  it('accept a batch of ten', () => {
+    expect(toGenerationRequest(h3Form).params.batch_size).toBe(10);
+    expect(clampBatchSize(50, H3_MAX_BATCH_SIZE)).toBe(10);
+  });
+
+  it('accept a much longer prompt', () => {
+    expect(H3_MAX_PROMPT_LENGTH).toBeGreaterThan(MAX_PROMPT_LENGTH);
+    expect(clampPrompt('x'.repeat(20000), H3_MAX_PROMPT_LENGTH)).toHaveLength(20000);
+    expect(clampPrompt('x'.repeat(20000), MAX_PROMPT_LENGTH)).toHaveLength(MAX_PROMPT_LENGTH);
+  });
+
+  it('never carry an area on an Image-01 request', () => {
+    const req = toGenerationRequest({ ...DEFAULT_FORM_STATE, prompt: 'x', area: '4K' });
+    expect(req.params.area).toBe('');
+  });
+
+  it('clear controls the model cannot honour when the capabilities are applied', () => {
+    const capabilities = {
+      ...DEFAULT_FORM_STATE,
+      model: 'MiniMax-H3-Image',
+      supports_dimensions: false,
+      supports_aspect_ratio: true,
+      supports_style: false,
+      supports_seed: false,
+      supports_watermark: false,
+      supports_reference_image: true,
+      supports_negative_prompt: false,
+      supports_mask: false,
+      aspect_ratios: ['1:1', '16:9'],
+      style_types: [],
+      areas: ['1K', '2K', '4K'],
+      min_dimension: 512,
+      max_dimension: 2048,
+      max_batch_size: 10,
+      max_prompt_length: 32000,
+    } as Capabilities;
+
+    const next = applyCapabilities(
+      { ...h3Form, aspectRatio: '21:9', styleType: '漫画' },
+      capabilities,
+    );
+
+    expect(next.seed).toBe(0);
+    expect(next.watermark).toBe(false);
+    expect(next.styleType).toBe('');
+    expect(next.width).toBe(0);
+    // The ratio survives: H3 does accept one.
+    expect(next.aspectRatio).toBe('1:1');
+    expect(next.area).toBe('4K');
   });
 });
